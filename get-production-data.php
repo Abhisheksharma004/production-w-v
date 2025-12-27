@@ -76,9 +76,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             foreach ($stageNames as $stageIndex => $stageName) {
                 $stageNumber = $stageIndex + 1;
                 $columnName = 'stage_' . $stageNumber . '_' . strtolower(preg_replace('/[^a-zA-Z0-9]/', '_', $stageName));
+                $qtyColumnName = $columnName . '_qty';
                 
                 $value = isset($row[$columnName]) ? $row[$columnName] : '';
-                $rowData['stages'][] = $value;
+                $quantity = isset($row[$qtyColumnName]) ? $row[$qtyColumnName] : '';
+                
+                $rowData['stages'][] = [
+                    'value' => $value,
+                    'quantity' => $quantity
+                ];
                 
                 if (empty($value)) {
                     $allStagesComplete = false;

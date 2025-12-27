@@ -1,8 +1,11 @@
 <?php
 session_start();
 
-// Check if user is logged in
-if (!isset($_SESSION['user_id'])) {
+// Check if user is logged in (either admin or line user)
+$isAdminUser = isset($_SESSION['user_id']);
+$isLineUser = isset($_SESSION['line_id']) && $_SESSION['user_type'] === 'line';
+
+if (!$isAdminUser && !$isLineUser) {
     header("Location: index.php");
     exit();
 }

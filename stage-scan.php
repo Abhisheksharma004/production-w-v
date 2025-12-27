@@ -4,38 +4,44 @@ require_once 'config/database.php';
 
 $message = '';
 $messageType = '';
-$allParts = [];
-$selectedPart = null;
+$selectedWingScale = null;
+$materialData = null;
 $selectedStageIndex = null;
 $stageMetadata = null;
+$stageQuantity = null;
 
-// Get all parts for dropdown
 $conn = getSQLSrvConnection();
-$sql = "SELECT id, part_code, part_name FROM parts ORDER BY part_code";
-$stmt = sqlsrv_query($conn, $sql);
-if ($stmt) {
-    while ($row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
-        $allParts[] = $row;
-    }
-}
 
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
-    if (isset($_POST['action']) && $_POST['action'] === 'select_part') {
-        $partId = intval($_POST['part_id']);
+    if (isset($_POST['action']) && $_POST['action'] === 'scan_wing_scale') {
+        $wingScaleBarcode = trim($_POST['wing_scale_barcode']);
         
-        if ($partId > 0) {
-            // Get part information
-            $sql = "SELECT id, part_code, part_name FROM parts WHERE id = ?";
-            $stmt = sqlsrv_query($conn, $sql, array($partId));
+        if (!empty($wingScaleBarcode)) {
+            // Check material_in table for wing scale barcode with open status
+            $sql = "SELECT m.*, p.part_code, p.part_name, w.scale_code, w.scale_name 
+                    FROM material_in m 
+                    LEFT JOIN parts p ON m.part_id = p.id
+                    LEFT JOIN wing_scales w ON m.wing_scale_id = w.id 
+                    WHERE (w.scale_code = ? OR m.wing_scale_code = ?) 
+                    AND LOWER(m.production_status) = 'open' 
+                    ORDER BY m.created_at DESC";
+            $stmt = sqlsrv_query($conn, $sql, array($wingScaleBarcode, $wingScaleBarcode));
             
             if ($stmt && $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
-                $selectedPart = $row;
+                // Found open material with this wing scale
+                $materialData = $row;
+                $selectedWingScale = $wingScaleBarcode;
+                $selectedPart = array(
+                    'id' => $row['part_id'],
+                    'part_code' => $row['part_code'],
+                    'part_name' => $row['part_name']
+                );
                 
-                // Get stage metadata for this part
+                // Get stage metadata
                 $sql = "SELECT table_name, stage_names FROM stages_metadata WHERE part_id = ?";
-                $stmt = sqlsrv_query($conn, $sql, array($partId));
+                $stmt = sqlsrv_query($conn, $sql, array($row['part_id']));
                 
                 if ($stmt && $metaRow = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
                     $stageMetadata = $metaRow;
@@ -43,36 +49,177 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 } else {
                     $message = 'No stages configured for this part';
                     $messageType = 'warning';
-                    $selectedPart = null;
                 }
+                
+                $message = '✓ Wing scale verified! Material found with OPEN status.';
+                $messageType = 'success';
+            } else {
+                // No open material found for this wing scale
+                $message = '✗ Warning: No OPEN material found for wing scale barcode "' . htmlspecialchars($wingScaleBarcode) . '". Please check the barcode or material status.';
+                $messageType = 'error';
             }
+        } else {
+            $message = 'Please scan or enter wing scale barcode';
+            $messageType = 'error';
         }
     } elseif (isset($_POST['action']) && $_POST['action'] === 'select_stage') {
         $partId = intval($_POST['part_id']);
         $stageIndex = intval($_POST['stage_index']);
+        $stageQuantity = isset($_POST['stage_quantity']) ? intval($_POST['stage_quantity']) : null;
+        $wingScaleBarcode = isset($_POST['wing_scale_barcode']) ? trim($_POST['wing_scale_barcode']) : null;
         
-        // Reload part and stage data
-        $sql = "SELECT id, part_code, part_name FROM parts WHERE id = ?";
+        // Get stage metadata and table name
+        $sql = "SELECT table_name, stage_names FROM stages_metadata WHERE part_id = ?";
         $stmt = sqlsrv_query($conn, $sql, array($partId));
         
-        if ($stmt && $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
-            $selectedPart = $row;
-            $selectedStageIndex = $stageIndex;
+        if ($stmt && $metaRow = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+            $tableName = $metaRow['table_name'];
+            $stageNames = json_decode($metaRow['stage_names'], true);
+            $stageName = $stageNames[$stageIndex];
+            $stageNumber = $stageIndex + 1;
             
-            $sql = "SELECT table_name, stage_names FROM stages_metadata WHERE part_id = ?";
-            $stmt = sqlsrv_query($conn, $sql, array($partId));
+            // Column names for this stage
+            $stageColumn = 'stage_' . $stageNumber . '_' . strtolower(preg_replace('/[^a-zA-Z0-9]/', '_', $stageName));
+            $stageQtyColumn = $stageColumn . '_qty';
             
-            if ($stmt && $metaRow = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
-                $stageMetadata = $metaRow;
-                $stageMetadata['stage_names'] = json_decode($metaRow['stage_names'], true);
+            // Get material data to retrieve batch number
+            $batchNumber = '';
+            if ($wingScaleBarcode) {
+                $sql = "SELECT m.batch_number 
+                        FROM material_in m 
+                        LEFT JOIN wing_scales w ON m.wing_scale_id = w.id 
+                        WHERE (w.scale_code = ? OR m.wing_scale_code = ?) 
+                        AND LOWER(m.production_status) = 'open' 
+                        ORDER BY m.created_at DESC";
+                $stmt = sqlsrv_query($conn, $sql, array($wingScaleBarcode, $wingScaleBarcode));
+                if ($stmt && $batchRow = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                    $batchNumber = $batchRow['batch_number'];
+                }
+            }
+            
+            // Format: "Wing Scale - Batch Number"
+            $stageValue = $wingScaleBarcode . ' - ' . $batchNumber;
+            
+            // Validate quantity: Check if previous stage exists and compare quantities
+            if ($stageIndex > 0) {
+                // Get the previous stage quantity column
+                $previousStageName = $stageNames[$stageIndex - 1];
+                $previousStageNumber = $stageIndex; // Previous stage number (0-indexed + 1 = current index)
+                $previousStageQtyColumn = 'stage_' . $previousStageNumber . '_' . strtolower(preg_replace('/[^a-zA-Z0-9]/', '_', $previousStageName)) . '_qty';
+                
+                // Check if a row exists with this wing scale-batch value
+                $whereConditions = array();
+                $searchParams = array();
+                foreach ($stageNames as $idx => $name) {
+                    $stgNum = $idx + 1;
+                    $stgCol = 'stage_' . $stgNum . '_' . strtolower(preg_replace('/[^a-zA-Z0-9]/', '_', $name));
+                    $whereConditions[] = "$stgCol = ?";
+                    $searchParams[] = $stageValue;
+                }
+                $whereClause = implode(' OR ', $whereConditions);
+                
+                $sql = "SELECT $previousStageQtyColumn FROM [$tableName] WHERE $whereClause";
+                $stmt = sqlsrv_query($conn, $sql, $searchParams);
+                
+                if ($stmt && $prevRow = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                    $previousQuantity = $prevRow[$previousStageQtyColumn];
+                    
+                    if ($previousQuantity !== null && $stageQuantity > $previousQuantity) {
+                        $message = '✗ Error: Stage quantity (' . $stageQuantity . ') cannot be greater than previous stage quantity (' . $previousQuantity . ')';
+                        $messageType = 'error';
+                        
+                        // Reload data to show the form again
+                        $sql = "SELECT id, part_code, part_name FROM parts WHERE id = ?";
+                        $stmt = sqlsrv_query($conn, $sql, array($partId));
+                        
+                        if ($stmt && $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                            $selectedPart = $row;
+                            $selectedStageIndex = null;
+                            $selectedWingScale = $wingScaleBarcode;
+                            
+                            if ($wingScaleBarcode) {
+                                $sql = "SELECT m.*, p.part_code, p.part_name, w.scale_code, w.scale_name 
+                                        FROM material_in m 
+                                        LEFT JOIN parts p ON m.part_id = p.id
+                                        LEFT JOIN wing_scales w ON m.wing_scale_id = w.id 
+                                        WHERE (w.scale_code = ? OR m.wing_scale_code = ?) 
+                                        AND LOWER(m.production_status) = 'open' 
+                                        ORDER BY m.created_at DESC";
+                                $stmt = sqlsrv_query($conn, $sql, array($wingScaleBarcode, $wingScaleBarcode));
+                                if ($stmt) {
+                                    $materialData = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC);
+                                }
+                            }
+                            
+                            $sql = "SELECT table_name, stage_names FROM stages_metadata WHERE part_id = ?";
+                            $stmt = sqlsrv_query($conn, $sql, array($partId));
+                            
+                            if ($stmt && $metaRow = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                                $stageMetadata = $metaRow;
+                                $stageMetadata['stage_names'] = json_decode($metaRow['stage_names'], true);
+                            }
+                        }
+                        
+                        // Skip the rest of the processing
+                        goto skip_save;
+                    }
+                }
+            }
+            
+            // Check if a row exists with this wing scale-batch value in ANY stage column
+            // Build dynamic WHERE clause to check all stage columns
+            $whereConditions = array();
+            $searchParams = array();
+            foreach ($stageNames as $idx => $name) {
+                $stgNum = $idx + 1;
+                $stgCol = 'stage_' . $stgNum . '_' . strtolower(preg_replace('/[^a-zA-Z0-9]/', '_', $name));
+                $whereConditions[] = "$stgCol = ?";
+                $searchParams[] = $stageValue;
+            }
+            $whereClause = implode(' OR ', $whereConditions);
+            
+            $sql = "SELECT id FROM [$tableName] WHERE $whereClause";
+            $stmt = sqlsrv_query($conn, $sql, $searchParams);
+            
+            if ($stmt && $existingRow = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                // Update existing row - add data to the current stage
+                $rowId = $existingRow['id'];
+                $sql = "UPDATE [$tableName] SET $stageColumn = ?, $stageQtyColumn = ?, updated_at = GETDATE() WHERE id = ?";
+                $stmt = sqlsrv_query($conn, $sql, array($stageValue, $stageQuantity, $rowId));
+                
+                if ($stmt) {
+                    $message = '✓ Stage data updated successfully! You can scan a new wing scale.';
+                    $messageType = 'success';
+                } else {
+                    $message = '✗ Error updating stage data: ' . print_r(sqlsrv_errors(), true);
+                    $messageType = 'error';
+                }
+            } else {
+                // Insert new row - this is the first stage for this wing scale-batch
+                $sql = "INSERT INTO [$tableName] (part_id, $stageColumn, $stageQtyColumn, created_at, updated_at) 
+                        VALUES (?, ?, ?, GETDATE(), GETDATE())";
+                $stmt = sqlsrv_query($conn, $sql, array($partId, $stageValue, $stageQuantity));
+                
+                if ($stmt) {
+                    $message = '✓ Stage data saved successfully! You can scan a new wing scale.';
+                    $messageType = 'success';
+                } else {
+                    $message = '✗ Error saving stage data: ' . print_r(sqlsrv_errors(), true);
+                    $messageType = 'error';
+                }
             }
         }
+        
+        skip_save:
+        // Reset all variables to go back to Step 1 (scan wing scale)
     } elseif (isset($_POST['action']) && $_POST['action'] === 'scan_data') {
         $partId = intval($_POST['part_id']);
         $tableName = $_POST['table_name'];
         $stageColumn = $_POST['stage_column'];
         $stageValue = trim($_POST['stage_value']);
         $stageIndex = intval($_POST['stage_index']);
+        $stageQuantity = isset($_POST['stage_quantity']) ? intval($_POST['stage_quantity']) : null;
+        $wingScaleBarcode = isset($_POST['wing_scale_barcode']) ? trim($_POST['wing_scale_barcode']) : null;
         
         if (!empty($stageValue)) {
             // Get stage metadata
@@ -156,6 +303,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($stmt && $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
                 $selectedPart = $row;
                 $selectedStageIndex = $stageIndex;
+                $stageQuantity = $stageQuantity;
+                $selectedWingScale = $wingScaleBarcode;
+                
+                // Reload material data if wing scale exists
+                if ($wingScaleBarcode) {
+                    $sql = "SELECT m.*, w.scale_code, w.scale_name 
+                            FROM material_in m 
+                            LEFT JOIN wing_scales w ON m.wing_scale_id = w.id 
+                            WHERE (w.scale_code = ? OR m.wing_scale_code = ?) 
+                            AND LOWER(m.production_status) = 'open' 
+                            ORDER BY m.created_at DESC";
+                    $stmt = sqlsrv_query($conn, $sql, array($wingScaleBarcode, $wingScaleBarcode));
+                    if ($stmt) {
+                        $materialData = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC);
+                    }
+                }
                 
                 $sql = "SELECT table_name, stage_names FROM stages_metadata WHERE part_id = ?";
                 $stmt = sqlsrv_query($conn, $sql, array($partId));
@@ -475,23 +638,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body>
     <div class="container">
         <h1>Stage Scanning</h1>
-        <p class="subtitle">Select part, select stage, then scan</p>
-
-        <!-- Step Indicator -->
-        <div class="step-indicator">
-            <div class="step <?php echo (!$selectedPart ? 'active' : 'completed'); ?>">
-                <div class="step-number">1</div>
-                <div class="step-label">Select Part</div>
-            </div>
-            <div class="step <?php echo ($selectedPart && $selectedStageIndex === null ? 'active' : ($selectedStageIndex !== null ? 'completed' : '')); ?>">
-                <div class="step-number">2</div>
-                <div class="step-label">Select Stage</div>
-            </div>
-            <div class="step <?php echo ($selectedStageIndex !== null ? 'active' : ''); ?>">
-                <div class="step-number">3</div>
-                <div class="step-label">Scan Data</div>
-            </div>
-        </div>
+        <p class="subtitle">Scan wing scale, select stage, then scan</p>
 
         <?php if ($message): ?>
             <div class="message <?php echo $messageType; ?>">
@@ -499,37 +646,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         <?php endif; ?>
 
-        <?php if (!$selectedPart): ?>
-            <!-- Step 1: Select Part -->
+        <?php if (!$selectedWingScale): ?>
+            <!-- Step 1: Scan Wing Scale -->
             <form method="POST" action="">
-                <input type="hidden" name="action" value="select_part">
+                <input type="hidden" name="action" value="scan_wing_scale">
                 
                 <div class="form-group">
-                    <label for="part_id">Step 1: Select Part</label>
-                    <select id="part_id" name="part_id" required autofocus>
-                        <option value="">-- Choose a Part --</option>
-                        <?php foreach ($allParts as $part): ?>
-                            <option value="<?php echo $part['id']; ?>">
-                                <?php echo htmlspecialchars($part['part_code']) . ' - ' . htmlspecialchars($part['part_name']); ?>
-                            </option>
-                        <?php endforeach; ?>
-                    </select>
+                    <label for="wing_scale_barcode">Step 1: Scan Wing Scale Barcode</label>
+                    <input type="text" 
+                           id="wing_scale_barcode" 
+                           name="wing_scale_barcode" 
+                           placeholder="Scan or enter wing scale barcode" 
+                           required 
+                           autofocus>
                 </div>
 
-                <button type="submit" class="btn btn-primary">Continue to Stage Selection</button>
+                <button type="submit" class="btn btn-primary">Verify Wing Scale</button>
             </form>
 
         <?php elseif ($selectedStageIndex === null): ?>
             <!-- Step 2: Select Stage -->
-            <div class="part-info">
-                <h3>Selected Part</h3>
-                <p><strong>Part Code:</strong> <?php echo htmlspecialchars($selectedPart['part_code']); ?></p>
-                <p><strong>Part Name:</strong> <?php echo htmlspecialchars($selectedPart['part_name']); ?></p>
+
+            <?php if ($materialData): ?>
+            <div class="part-info" style="border-left-color: #38ef7d; background: #f0fdf4;">
+                <h3>Material Information</h3>
+                <p><strong>Wing Scale:</strong> <?php echo htmlspecialchars($selectedWingScale); ?></p>
+                <p><strong>Batch Number:</strong> <?php echo htmlspecialchars($materialData['batch_number'] ?? 'N/A'); ?></p>
+                <p><strong>Quantity:</strong> <?php echo htmlspecialchars($materialData['in_quantity'] ?? 'N/A'); ?></p>
+                <p><strong>Material Code:</strong> <?php echo htmlspecialchars($materialData['part_code'] ?? 'N/A'); ?></p>
+                <p><strong>Status:</strong> <span style="color: #38ef7d; font-weight: bold;">OPEN</span></p>
             </div>
+            <?php endif; ?>
 
             <form method="POST" action="">
                 <input type="hidden" name="action" value="select_stage">
                 <input type="hidden" name="part_id" value="<?php echo $selectedPart['id']; ?>">
+                <input type="hidden" name="wing_scale_barcode" value="<?php echo htmlspecialchars($selectedWingScale); ?>">
                 
                 <div class="form-group">
                     <label for="stage_index">Step 2: Select Stage</label>
@@ -543,71 +695,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </select>
                 </div>
 
-                <button type="submit" class="btn btn-primary">Continue to Scanning</button>
-                <button type="submit" class="btn btn-secondary" formaction="" formmethod="get">Change Part</button>
+                <div class="form-group">
+                    <label for="stage_quantity">Production Quantity for This Stage</label>
+                    <input type="number" 
+                           id="stage_quantity" 
+                           name="stage_quantity" 
+                           placeholder="Enter quantity" 
+                           min="0"
+                           required>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Save</button>
             </form>
 
-        <?php else: ?>
-            <!-- Step 3: Scan Data -->
-            <?php 
-                $stageName = $stageMetadata['stage_names'][$selectedStageIndex];
-                $stageNumber = $selectedStageIndex + 1;
-                $stageColumn = 'stage_' . $stageNumber . '_' . strtolower(preg_replace('/[^a-zA-Z0-9]/', '_', $stageName));
-            ?>
-            
-            <div class="part-info">
-                <h3>Selected Part</h3>
-                <p><strong>Part Code:</strong> <?php echo htmlspecialchars($selectedPart['part_code']); ?></p>
-                <p><strong>Part Name:</strong> <?php echo htmlspecialchars($selectedPart['part_name']); ?></p>
-            </div>
-
-            <div class="stage-form">
-                <div class="stage-title">Stage <?php echo $stageNumber; ?>: <?php echo htmlspecialchars($stageName); ?></div>
-                
-                <form method="POST" action="">
-                    <input type="hidden" name="action" value="scan_data">
-                    <input type="hidden" name="part_id" value="<?php echo $selectedPart['id']; ?>">
-                    <input type="hidden" name="table_name" value="<?php echo htmlspecialchars($stageMetadata['table_name']); ?>">
-                    <input type="hidden" name="stage_column" value="<?php echo $stageColumn; ?>">
-                    <input type="hidden" name="stage_index" value="<?php echo $selectedStageIndex; ?>">
-                    
-                    <div class="form-group">
-                        <label for="stage_value">Step 3: Scan or Enter Data</label>
-                        <input type="text" 
-                               id="stage_value" 
-                               name="stage_value" 
-                               placeholder="Scan barcode or enter value" 
-                               required 
-                               autofocus>
-                    </div>
-
-                    <button type="submit" class="btn btn-success">✓ Record Data</button>
-                </form>
-            </div>
-
-            <script>
-                // Auto-focus and clear input for continuous scanning
-                document.addEventListener('DOMContentLoaded', function() {
-                    const input = document.getElementById('stage_value');
-                    if (input) {
-                        // Clear the input field on page load (after successful submission)
-                        input.value = '';
-                        // Focus the input for the next scan
-                        input.focus();
-                        
-                        // Optional: Select all text when clicking (for easy replacement)
-                        input.addEventListener('click', function() {
-                            this.select();
-                        });
-                    }
-                });
-            </script>
-
-            <div class="divider"></div>
-
-            <form method="GET" action="">
-                <button type="submit" class="btn btn-secondary">Start New Scan</button>
-            </form>
         <?php endif; ?>
     </div>
 </body>

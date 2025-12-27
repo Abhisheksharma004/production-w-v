@@ -265,22 +265,19 @@ foreach ($allMaterials as $material) {
                     <table class="recent-materials-table">
                         <thead>
                             <tr>
-                                <th>Production Line</th>
-                                <th>Received Date</th>
+                                <th>Date & Time</th>
+                                <th>Wing Scale</th>
                                 <th>Part Code</th>
-                                <th>Part Name</th>
-                                <th>Batch Number</th>
-                                <th>In Qty</th>
-                                <th>Production Qty</th>
+                                <th>In Quantity</th>
                                 <th>Final Production</th>
                                 <th>Scrap</th>
+                                <th>Batch Number</th>
                                 <th>Status</th>
                             </tr>
                         </thead>
                         <tbody>
                             <?php foreach ($allMaterials as $material): ?>
                             <tr data-line-id="<?php echo $material['line_id']; ?>" data-status="<?php echo htmlspecialchars($material['production_status']); ?>">
-                                <td><?php echo htmlspecialchars($material['line_name']); ?></td>
                                 <td>
                                     <?php 
                                     if ($material['received_date'] instanceof DateTime) {
@@ -290,25 +287,24 @@ foreach ($allMaterials as $material) {
                                     }
                                     ?>
                                 </td>
+                                <td><?php echo htmlspecialchars($material['wing_scale_code'] ?? '-'); ?></td>
                                 <td><strong><?php echo htmlspecialchars($material['part_code']); ?></strong></td>
-                                <td><?php echo htmlspecialchars($material['part_name']); ?></td>
-                                <td><span class="badge-batch"><?php echo htmlspecialchars($material['batch_number']); ?></span></td>
                                 <td><?php echo $material['in_quantity'] . ' ' . $material['in_units']; ?></td>
-                                <td><?php echo $material['production_quantity'] . ' ' . $material['production_units']; ?></td>
                                 <td>
                                     <?php 
                                     echo $material['final_production_quantity'] 
-                                        ? '<span class="qty-value">' . $material['final_production_quantity'] . ' ' . $material['production_units'] . '</span>' 
+                                        ? '<span class="qty-value">' . $material['final_production_quantity'] . ' ' . $material['in_units'] . '</span>' 
                                         : '<span class="text-muted">-</span>';
                                     ?>
                                 </td>
                                 <td>
                                     <?php 
                                     echo $material['scrap_quantity'] 
-                                        ? '<span class="qty-scrap">' . $material['scrap_quantity'] . ' ' . $material['production_units'] . '</span>' 
+                                        ? '<span class="qty-scrap">' . $material['scrap_quantity'] . ' ' . $material['in_units'] . '</span>' 
                                         : '<span class="text-muted">-</span>';
                                     ?>
                                 </td>
+                                <td><span class="badge-batch"><?php echo htmlspecialchars($material['batch_number']); ?></span></td>
                                 <td>
                                     <?php if ($material['production_status'] == 'Closed'): ?>
                                         <span class="badge-status closed">Closed</span>
@@ -485,11 +481,8 @@ foreach ($allMaterials as $material) {
                 return;
             }
 
-            // Get headers
-            const headers = [];
-            table.querySelectorAll('thead th').forEach(th => {
-                headers.push(th.textContent.trim());
-            });
+            // Get headers - use the new column structure
+            const headers = ['Date & Time', 'Wing Scale', 'Part Code', 'In Quantity', 'Final Production', 'Scrap', 'Batch Number', 'Status'];
 
             // Get data
             const data = [];

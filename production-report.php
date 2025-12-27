@@ -229,7 +229,7 @@ try {
             // Build table headers
             let headers = '<th>S.No</th><th>Date</th>';
             stageNames.forEach(stage => {
-                headers += `<th>${stage}</th>`;
+                headers += `<th>${stage}<br><small style="font-weight: normal; color: #64748b;">(Value / Qty)</small></th>`;
             });
             headers += '<th>Status</th>';
             
@@ -283,8 +283,10 @@ try {
                         tableHTML += `<td>${index + 1}</td>`;
                         tableHTML += `<td>${row.created_at ? new Date(row.created_at).toLocaleDateString() : '-'}</td>`;
                         
-                        row.stages.forEach(stageValue => {
-                            tableHTML += `<td>${stageValue || '-'}</td>`;
+                        row.stages.forEach(stageData => {
+                            const displayValue = stageData.value || '-';
+                            const displayQty = stageData.quantity !== null && stageData.quantity !== '' ? stageData.quantity : '-';
+                            tableHTML += `<td>${displayValue}<br><strong style="color: #3b82f6;">${displayQty}</strong></td>`;
                         });
                         
                         const statusClass = row.status === 'Complete' ? 'status-complete' : 'status-incomplete';
@@ -330,23 +332,62 @@ try {
             const dateFrom = document.getElementById('filterDateFrom').value;
             const dateTo = document.getElementById('filterDateTo').value;
 
-            // Get table headers
-            const headerCells = document.querySelectorAll('#tableHeaders th');
-            const headers = [];
-            headerCells.forEach(cell => {
-                headers.push(cell.textContent);
-            });
+            // Find metadata for selected part
+            const partId = partSelect.value;
+            const metadata = stagesMetadata.find(m => m.part_id == partId);
+            
+            if (!metadata) {
+                alert('No stages configured for this part');
+                return;
+            }
 
-            // Get table data
+            const stageNames = JSON.parse(metadata.stage_names);
+
+            // Build headers with separate Value and Qty columns for each stage
+            const headers = ['S.No', 'Date'];
+            stageNames.forEach(stage => {
+                headers.push(stage + ' (Value)');
+                headers.push(stage + ' (Qty)');
+            });
+            headers.push('Status');
+
+            // Get table data - extract from current loaded data
             const dataRows = document.querySelectorAll('#tableBody tr');
             const data = [];
-            dataRows.forEach(row => {
+            
+            dataRows.forEach((row, index) => {
                 const cells = row.querySelectorAll('td');
                 if (cells.length > 0) {
                     const rowData = [];
-                    cells.forEach(cell => {
-                        rowData.push(cell.textContent.trim());
-                    });
+                    rowData.push(cells[0].textContent.trim()); // S.No
+                    rowData.push(cells[1].textContent.trim()); // Date
+                    
+                    // Extract stage values and quantities
+                    for (let i = 2; i < cells.length - 1; i++) {
+                        const cell = cells[i];
+                        
+                        // Get the value (first text node or content before br)
+                        const childNodes = cell.childNodes;
+                        let value = '-';
+                        let quantity = '-';
+                        
+                        // First child node is the value text
+                        if (childNodes[0]) {
+                            value = childNodes[0].textContent.trim();
+                        }
+                        
+                        // Look for strong tag which contains quantity
+                        const strongTag = cell.querySelector('strong');
+                        if (strongTag) {
+                            quantity = strongTag.textContent.trim();
+                        }
+                        
+                        rowData.push(value);
+                        rowData.push(quantity);
+                    }
+                    
+                    // Add status
+                    rowData.push(cells[cells.length - 1].textContent.trim());
                     data.push(rowData);
                 }
             });
