@@ -52,7 +52,7 @@ try {
     // Handle error
 }
 
-// Fetch all material receipts (admin can see all)
+// Fetch all material receipts (admin can see all) with last stage quantities
 $allMaterials = [];
 $dataFetchError = null;
 try {
@@ -66,6 +66,48 @@ try {
         
         if ($stmt !== false) {
             while ($row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                // Get last stage quantity for this material
+                $lastStageQty = null;
+                
+                // Get stages metadata for this part
+                $metaSql = "SELECT table_name, stage_names FROM stages_metadata WHERE part_id = ?";
+                $metaStmt = sqlsrv_query($conn, $metaSql, array($row['part_id']));
+                
+                if ($metaStmt && $metaRow = sqlsrv_fetch_array($metaStmt, SQLSRV_FETCH_ASSOC)) {
+                    $tableName = $metaRow['table_name'];
+                    $stageNames = json_decode($metaRow['stage_names'], true);
+                    
+                    if (!empty($stageNames)) {
+                        // Get the last stage
+                        $lastStageIndex = count($stageNames) - 1;
+                        $lastStageName = $stageNames[$lastStageIndex];
+                        $lastStageNumber = $lastStageIndex + 1;
+                        
+                        // Column names for last stage
+                        $lastStageColumn = 'stage_' . $lastStageNumber . '_' . strtolower(preg_replace('/[^a-zA-Z0-9]/', '_', $lastStageName));
+                        $lastStageQtyColumn = $lastStageColumn . '_qty';
+                        
+                        // Build search value (wing_scale - batch_number)
+                        $searchValue = $row['wing_scale_code'] . ' - ' . $row['batch_number'];
+                        
+                        // Query the part table for last stage quantity
+                        $partSql = "SELECT $lastStageQtyColumn FROM [$tableName] WHERE $lastStageColumn = ?";
+                        $partStmt = sqlsrv_query($conn, $partSql, array($searchValue));
+                        
+                        if ($partStmt && $partRow = sqlsrv_fetch_array($partStmt, SQLSRV_FETCH_ASSOC)) {
+                            $lastStageQty = $partRow[$lastStageQtyColumn];
+                        }
+                        
+                        if ($partStmt) {
+                            sqlsrv_free_stmt($partStmt);
+                        }
+                    }
+                    
+                    sqlsrv_free_stmt($metaStmt);
+                }
+                
+                // Add last stage quantity to the row
+                $row['last_stage_quantity'] = $lastStageQty;
                 $allMaterials[] = $row;
             }
             sqlsrv_free_stmt($stmt);
@@ -95,11 +137,13 @@ foreach ($allMaterials as $material) {
         $openProductions++;
     }
     $totalInQuantity += $material['in_quantity'];
-    if ($material['final_production_quantity']) {
-        $totalFinalProduction += $material['final_production_quantity'];
-    }
-    if (isset($material['scrap_quantity']) && $material['scrap_quantity']) {
-        $totalScrap += $material['scrap_quantity'];
+    // Use last stage quantity if available, otherwise use final_production_quantity
+    $finalProdQty = $material['last_stage_quantity'] ?? $material['final_production_quantity'];
+    if ($finalProdQty) {
+        $totalFinalProduction += $finalProdQty;
+        // Calculate scrap: In Quantity - Final Production
+        $calculatedScrap = $material['in_quantity'] - $finalProdQty;
+        $totalScrap += max(0, $calculatedScrap);
     }
 }
 ?>
@@ -292,16 +336,23 @@ foreach ($allMaterials as $material) {
                                 <td><?php echo $material['in_quantity'] . ' ' . $material['in_units']; ?></td>
                                 <td>
                                     <?php 
-                                    echo $material['final_production_quantity'] 
-                                        ? '<span class="qty-value">' . $material['final_production_quantity'] . ' ' . $material['in_units'] . '</span>' 
+                                    // Show last stage quantity if available, otherwise show final_production_quantity
+                                    $displayQty = $material['last_stage_quantity'] ?? $material['final_production_quantity'];
+                                    echo $displayQty 
+                                        ? '<span class="qty-value">' . $displayQty . ' ' . $material['in_units'] . '</span>' 
                                         : '<span class="text-muted">-</span>';
                                     ?>
                                 </td>
                                 <td>
                                     <?php 
-                                    echo $material['scrap_quantity'] 
-                                        ? '<span class="qty-scrap">' . $material['scrap_quantity'] . ' ' . $material['in_units'] . '</span>' 
-                                        : '<span class="text-muted">-</span>';
+                                    // Calculate scrap: In Quantity - Final Production (last stage quantity)
+                                    $finalProd = $material['last_stage_quantity'] ?? $material['final_production_quantity'];
+                                    if ($finalProd && $finalProd > 0) {
+                                        $calculatedScrap = $material['in_quantity'] - $finalProd;
+                                        echo '<span class="qty-scrap">' . number_format($calculatedScrap) . ' ' . $material['in_units'] . '</span>';
+                                    } else {
+                                        echo '<span class="text-muted">-</span>';
+                                    }
                                     ?>
                                 </td>
                                 <td><span class="badge-batch"><?php echo htmlspecialchars($material['batch_number']); ?></span></td>

@@ -145,6 +145,57 @@ if ($_SERVER['REQUEST_METHOD'] == 'GET' && isset($_GET['get_material']) && isset
     exit();
 }
 
+// Handle AJAX request to get last stage quantity
+if ($_SERVER['REQUEST_METHOD'] == 'GET' && isset($_GET['get_last_stage_quantity'])) {
+    $conn = getSQLSrvConnection();
+    $partId = intval($_GET['part_id']);
+    $wingScaleCode = $_GET['wing_scale_code'];
+    $batchNumber = $_GET['batch_number'];
+    
+    $lastStageQty = null;
+    
+    // Get stages metadata for this part
+    $metaSql = "SELECT table_name, stage_names FROM stages_metadata WHERE part_id = ?";
+    $metaStmt = sqlsrv_query($conn, $metaSql, array($partId));
+    
+    if ($metaStmt && $metaRow = sqlsrv_fetch_array($metaStmt, SQLSRV_FETCH_ASSOC)) {
+        $tableName = $metaRow['table_name'];
+        $stageNames = json_decode($metaRow['stage_names'], true);
+        
+        if (!empty($stageNames)) {
+            // Get the last stage
+            $lastStageIndex = count($stageNames) - 1;
+            $lastStageName = $stageNames[$lastStageIndex];
+            $lastStageNumber = $lastStageIndex + 1;
+            
+            // Column names for last stage
+            $lastStageColumn = 'stage_' . $lastStageNumber . '_' . strtolower(preg_replace('/[^a-zA-Z0-9]/', '_', $lastStageName));
+            $lastStageQtyColumn = $lastStageColumn . '_qty';
+            
+            // Build search value (wing_scale - batch_number)
+            $searchValue = $wingScaleCode . ' - ' . $batchNumber;
+            
+            // Query the part table for last stage quantity
+            $partSql = "SELECT $lastStageQtyColumn FROM [$tableName] WHERE $lastStageColumn = ?";
+            $partStmt = sqlsrv_query($conn, $partSql, array($searchValue));
+            
+            if ($partStmt && $partRow = sqlsrv_fetch_array($partStmt, SQLSRV_FETCH_ASSOC)) {
+                $lastStageQty = $partRow[$lastStageQtyColumn];
+            }
+            
+            if ($partStmt) {
+                sqlsrv_free_stmt($partStmt);
+            }
+        }
+        
+        sqlsrv_free_stmt($metaStmt);
+    }
+    
+    header('Content-Type: application/json');
+    echo json_encode(['last_stage_quantity' => $lastStageQty]);
+    exit();
+}
+
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['action'] == 'add') {
     $conn = getSQLSrvConnection();
@@ -157,6 +208,19 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
     $receivedTime = $_POST['received_time'];
     $receivedDateTime = $receivedDate . ' ' . $receivedTime . ':00'; // Add seconds for proper datetime format
     $batchNumber = trim($_POST['batch_number']);
+    
+    // Check if wing scale already has open production for this line
+    $checkSql = "SELECT COUNT(*) as count FROM material_in WHERE wing_scale_id = ? AND line_id = ? AND LOWER(production_status) = 'open'";
+    $checkStmt = sqlsrv_query($conn, $checkSql, array($wingScaleId, $line_id));
+    
+    if ($checkStmt && $checkRow = sqlsrv_fetch_array($checkStmt, SQLSRV_FETCH_ASSOC)) {
+        if ($checkRow['count'] > 0) {
+            $_SESSION['message'] = "This wing scale already has an open production! Please close the existing production before adding new material.";
+            $_SESSION['messageType'] = 'error';
+            header("Location: material-in.php");
+            exit();
+        }
+    }
     
     // Get wing scale information
     $wingScaleName = '';
@@ -197,13 +261,22 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
     exit();
 }
 
-// Fetch wing scales for dropdown
+// Fetch wing scales for dropdown with open status check
 $wingScales = [];
 try {
     $conn = getSQLSrvConnection();
     if ($conn !== false) {
-        $sql = "SELECT id, scale_code, scale_name FROM wing_scales WHERE status = 'Active' ORDER BY scale_code";
-        $stmt = sqlsrv_query($conn, $sql);
+        $sql = "SELECT ws.id, ws.scale_code, ws.scale_name,
+                CASE WHEN EXISTS (
+                    SELECT 1 FROM material_in mi 
+                    WHERE mi.wing_scale_id = ws.id 
+                    AND mi.line_id = ? 
+                    AND LOWER(mi.production_status) = 'open'
+                ) THEN 1 ELSE 0 END as has_open_production
+                FROM wing_scales ws 
+                WHERE ws.status = 'Active' 
+                ORDER BY ws.scale_code";
+        $stmt = sqlsrv_query($conn, $sql, array($line_id));
         
         if ($stmt !== false) {
             while ($row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
@@ -234,7 +307,7 @@ try {
     // Handle error
 }
 
-// Fetch recent material receipts
+// Fetch recent material receipts with last stage quantities
 $recentMaterials = [];
 try {
     if ($conn !== false) {
@@ -243,6 +316,48 @@ try {
         
         if ($stmt !== false) {
             while ($row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                // Get last stage quantity for this material
+                $lastStageQty = null;
+                
+                // Get stages metadata for this part
+                $metaSql = "SELECT table_name, stage_names FROM stages_metadata WHERE part_id = ?";
+                $metaStmt = sqlsrv_query($conn, $metaSql, array($row['part_id']));
+                
+                if ($metaStmt && $metaRow = sqlsrv_fetch_array($metaStmt, SQLSRV_FETCH_ASSOC)) {
+                    $tableName = $metaRow['table_name'];
+                    $stageNames = json_decode($metaRow['stage_names'], true);
+                    
+                    if (!empty($stageNames)) {
+                        // Get the last stage
+                        $lastStageIndex = count($stageNames) - 1;
+                        $lastStageName = $stageNames[$lastStageIndex];
+                        $lastStageNumber = $lastStageIndex + 1;
+                        
+                        // Column names for last stage
+                        $lastStageColumn = 'stage_' . $lastStageNumber . '_' . strtolower(preg_replace('/[^a-zA-Z0-9]/', '_', $lastStageName));
+                        $lastStageQtyColumn = $lastStageColumn . '_qty';
+                        
+                        // Build search value (wing_scale - batch_number)
+                        $searchValue = $row['wing_scale_code'] . ' - ' . $row['batch_number'];
+                        
+                        // Query the part table for last stage quantity
+                        $partSql = "SELECT $lastStageQtyColumn FROM [$tableName] WHERE $lastStageColumn = ?";
+                        $partStmt = sqlsrv_query($conn, $partSql, array($searchValue));
+                        
+                        if ($partStmt && $partRow = sqlsrv_fetch_array($partStmt, SQLSRV_FETCH_ASSOC)) {
+                            $lastStageQty = $partRow[$lastStageQtyColumn];
+                        }
+                        
+                        if ($partStmt) {
+                            sqlsrv_free_stmt($partStmt);
+                        }
+                    }
+                    
+                    sqlsrv_free_stmt($metaStmt);
+                }
+                
+                // Add last stage quantity to the row
+                $row['last_stage_quantity'] = $lastStageQty;
                 $recentMaterials[] = $row;
             }
             sqlsrv_free_stmt($stmt);
@@ -395,14 +510,20 @@ if (isset($_SESSION['message'])) {
                     <div class="form-row">
                         <div class="form-group">
                             <label for="wing_scale_id">Select Wing Scale *</label>
-                            <select id="wing_scale_id" name="wing_scale_id" required>
+                            <select id="wing_scale_id" name="wing_scale_id" required onchange="checkWingScaleStatus(this)">
                                 <option value="">-- Select Wing Scale --</option>
                                 <?php foreach ($wingScales as $scale): ?>
-                                    <option value="<?php echo $scale['id']; ?>">
+                                    <option value="<?php echo $scale['id']; ?>" 
+                                            data-has-open="<?php echo $scale['has_open_production']; ?>"
+                                            <?php echo $scale['has_open_production'] ? 'disabled' : ''; ?>>
                                         <?php echo htmlspecialchars($scale['scale_code'] . ' - ' . $scale['scale_name']); ?>
+                                        <?php echo $scale['has_open_production'] ? ' (Already in Use)' : ''; ?>
                                     </option>
                                 <?php endforeach; ?>
                             </select>
+                            <small id="wing_scale_warning" style="color: #ef4444; display: none; margin-top: 5px;">
+                                <i class="fas fa-exclamation-triangle"></i> This wing scale already has an open production. Please close it first.
+                            </small>
                         </div>
 
                         <div class="form-group">
@@ -503,17 +624,23 @@ if (isset($_SESSION['message'])) {
 
                             <div class="form-row">
                                 <div class="form-group">
-                                    <label for="final_production_quantity">Final Production Quantity *</label>
+                                    <label for="final_production_quantity">Final Production Quantity (Auto-calculated from last stage) *</label>
                                     <input type="number" id="final_production_quantity" name="final_production_quantity" 
-                                           min="0" required placeholder="Enter actual production quantity">
-                                    <small style="color: #64748b;">Enter the total quantity successfully produced</small>
+                                           min="0" required readonly placeholder="Auto-calculated from last stage"
+                                           style="background-color: #f1f5f9; cursor: not-allowed;">
+                                    <small style="color: #64748b; display: block; margin-top: 5px;">
+                                        <i class="fas fa-info-circle"></i> This value is automatically calculated from the last production stage
+                                    </small>
                                 </div>
 
                                 <div class="form-group">
-                                    <label for="scrap_quantity">Scrap Quantity *</label>
+                                    <label for="scrap_quantity">Scrap Quantity (Auto-calculated) *</label>
                                     <input type="number" id="scrap_quantity" name="scrap_quantity" 
-                                           min="0" required placeholder="Enter scrap/waste quantity">
-                                    <small style="color: #64748b;">Enter the quantity rejected or wasted</small>
+                                           min="0" required readonly placeholder="Auto-calculated"
+                                           style="background-color: #f1f5f9; cursor: not-allowed;">
+                                    <small style="color: #64748b; display: block; margin-top: 5px;">
+                                        <i class="fas fa-info-circle"></i> Scrap = In Quantity - Final Production Quantity
+                                    </small>
                                 </div>
                             </div>
 
@@ -578,15 +705,23 @@ if (isset($_SESSION['message'])) {
                                     <span class="quantity-unit"><?php echo htmlspecialchars($material['in_units'] ?? 'Pcs'); ?></span>
                                 </td>
                                 <td class="quantity-cell">
-                                    <?php if (!empty($material['final_production_quantity'])): ?>
-                                        <?php echo number_format($material['final_production_quantity']); ?>
+                                    <?php 
+                                    // Show last stage quantity if available, otherwise show final_production_quantity
+                                    $displayQty = $material['last_stage_quantity'] ?? $material['final_production_quantity'];
+                                    if (!empty($displayQty)): ?>
+                                        <?php echo number_format($displayQty); ?>
                                     <?php else: ?>
                                         <span style="color: #94a3b8;">-</span>
                                     <?php endif; ?>
                                 </td>
                                 <td class="quantity-cell">
-                                    <?php if (!empty($material['scrap_quantity']) || $material['scrap_quantity'] === 0): ?>
-                                        <span style="color: #ef4444; font-weight: 600;"><?php echo number_format($material['scrap_quantity']); ?></span>
+                                    <?php 
+                                    // Calculate scrap: In Quantity - Final Production (last stage quantity)
+                                    $finalProd = $material['last_stage_quantity'] ?? $material['final_production_quantity'];
+                                    if (!empty($finalProd) && $finalProd > 0): 
+                                        $calculatedScrap = $material['in_quantity'] - $finalProd;
+                                    ?>
+                                        <span style="color: #ef4444; font-weight: 600;"><?php echo number_format($calculatedScrap); ?></span>
                                     <?php else: ?>
                                         <span style="color: #94a3b8;">-</span>
                                     <?php endif; ?>
@@ -722,6 +857,29 @@ if (isset($_SESSION['message'])) {
             document.getElementById('form_action').value = 'add';
             document.getElementById('material_id').value = '';
             document.getElementById('modal_title').innerHTML = '<i class="fas fa-plus-circle"></i> Record Material Receipt';
+            // Hide wing scale warning
+            const warningElement = document.getElementById('wing_scale_warning');
+            if (warningElement) {
+                warningElement.style.display = 'none';
+            }
+        }
+
+        // Check wing scale status on selection
+        function checkWingScaleStatus(selectElement) {
+            const selectedOption = selectElement.options[selectElement.selectedIndex];
+            const warningElement = document.getElementById('wing_scale_warning');
+            
+            if (selectedOption && selectedOption.getAttribute('data-has-open') === '1') {
+                warningElement.style.display = 'block';
+                selectElement.value = ''; // Clear selection
+                
+                // Show alert as well
+                setTimeout(() => {
+                    alert('This wing scale already has an open production!\\n\\nPlease close the existing production before adding new material with this wing scale.');
+                }, 100);
+            } else {
+                warningElement.style.display = 'none';
+            }
         }
 
         // Close modal when clicking outside
@@ -835,9 +993,29 @@ if (isset($_SESSION['message'])) {
                         document.getElementById('close_part_code').textContent = data.part_code;
                         document.getElementById('close_in_quantity').textContent = data.in_quantity + ' ' + data.in_units;
                         
-                        // Reset input fields
-                        document.getElementById('final_production_quantity').value = '';
-                        document.getElementById('scrap_quantity').value = '';
+                        // Fetch last stage quantity
+                        fetch('material-in.php?get_last_stage_quantity=1&part_id=' + data.part_id + 
+                              '&wing_scale_code=' + encodeURIComponent(data.wing_scale_code) + 
+                              '&batch_number=' + encodeURIComponent(data.batch_number))
+                            .then(response => response.json())
+                            .then(stageData => {
+                                const finalQty = stageData.last_stage_quantity;
+                                if (finalQty !== null && finalQty !== undefined) {
+                                    document.getElementById('final_production_quantity').value = finalQty;
+                                    // Auto-calculate scrap: In Quantity - Final Production
+                                    const inQty = parseFloat(data.in_quantity) || 0;
+                                    const scrapQty = inQty - finalQty;
+                                    document.getElementById('scrap_quantity').value = Math.max(0, scrapQty);
+                                } else {
+                                    document.getElementById('final_production_quantity').value = '';
+                                    document.getElementById('scrap_quantity').value = '';
+                                }
+                            })
+                            .catch(error => {
+                                console.error('Error fetching last stage quantity:', error);
+                                document.getElementById('final_production_quantity').value = '';
+                                document.getElementById('scrap_quantity').value = '';
+                            });
                         
                         // Open modal
                         document.getElementById('closeProductionModal').style.display = 'block';
