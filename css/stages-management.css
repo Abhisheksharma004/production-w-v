@@ -1,0 +1,102 @@
+/* Alert Messages */
+.alert {
+    padding: 15px 20px;
+    margin-bottom: 20px;
+    border-radius: 8px;
+    font-weight: 500;
+}
+
+.alert-success {
+    background: #d1fae5;
+    color: #065f46;
+    border: 1px solid #10b981;
+}
+
+.alert-error {
+    background: #fee2e2;
+    color: #991b1b;
+    border: 1px solid #ef4444;
+}
+
+/* Stages Display */
+.stages-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+
+.stage-badge {
+    display: inline-block;
+    padding: 4px 10px;
+    background: #e0f2fe;
+    color: #0369a1;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+/* Stages Form Section */
+.stages-section {
+    margin-top: 20px;
+    padding: 15px;
+    background: #f8fafc;
+    border-radius: 8px;
+}
+
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.section-header label {
+    font-weight: 600;
+    font-size: 16px;
+    color: #1e293b;
+    margin: 0;
+}
+
+/* Button Sizes */
+.btn-sm {
+    padding: 6px 12px;
+    font-size: 13px;
+}
+
+/* Stage Rows */
+.stage-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+    align-items: flex-end;
+}
+
+.stage-row .form-group {
+    flex: 1;
+    margin-bottom: 0;
+}
+
+.stage-row .btn-remove {
+    background: #ef4444;
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 6px;
+    cursor: pointer;
+    height: 42px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.stage-row .btn-remove:hover {
+    background: #dc2626;
+}
+
+.stage-row-number {
+    width: 40px;
+    text-align: center;
+    font-weight: 600;
+    color: #64748b;
+    line-height: 42px;
+}
