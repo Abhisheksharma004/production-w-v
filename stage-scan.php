@@ -4,9 +4,10 @@ require_once 'config/database.php';
 
 $message = '';
 $messageType = '';
-$selectedWingScale = null;
-$materialData = null;
+$selectedPart = null;
 $selectedStageIndex = null;
+$selectedBin = null;
+$materialData = null;
 $stageMetadata = null;
 $stageQuantity = null;
 
@@ -15,10 +16,92 @@ $conn = getSQLSrvConnection();
 // Handle form submission
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     
-    if (isset($_POST['action']) && $_POST['action'] === 'scan_wing_scale') {
-        $wingScaleBarcode = trim($_POST['wing_scale_barcode']);
+    if (isset($_POST['action']) && $_POST['action'] === 'reset_workflow') {
+        // Reset all variables to start fresh
+        $selectedPart = null;
+        $selectedStageIndex = null;
+        $selectedBin = null;
+        $materialData = null;
+        $stageMetadata = null;
+        $message = '⟳ Workflow reset. Select a new part to begin.';
+        $messageType = 'success';
+    } elseif (isset($_POST['action']) && $_POST['action'] === 'select_part') {
+        $partId = intval($_POST['part_id']);
         
-        if (!empty($wingScaleBarcode)) {
+        if ($partId > 0) {
+            // Get part information
+            $sql = "SELECT id, part_code, part_name FROM parts WHERE id = ?";
+            $stmt = sqlsrv_query($conn, $sql, array($partId));
+            
+            if ($stmt && $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                $selectedPart = $row;
+                
+                // Get stage metadata
+                $sql = "SELECT table_name, stage_names FROM stages_metadata WHERE part_id = ?";
+                $stmt = sqlsrv_query($conn, $sql, array($partId));
+                
+                if ($stmt && $metaRow = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                    $stageMetadata = $metaRow;
+                    $stageMetadata['stage_names'] = json_decode($metaRow['stage_names'], true);
+                    $message = '✓ Part selected! Now choose your stage.';
+                    $messageType = 'success';
+                } else {
+                    $message = 'No stages configured for this part';
+                    $messageType = 'warning';
+                    $selectedPart = null;
+                }
+            }
+        } else {
+            $message = 'Please select a part';
+            $messageType = 'error';
+        }
+    } elseif (isset($_POST['action']) && $_POST['action'] === 'select_stage') {
+        $partId = intval($_POST['part_id']);
+        $stageIndex = intval($_POST['stage_index']);
+        
+        // Reload part and stage info
+        $sql = "SELECT id, part_code, part_name FROM parts WHERE id = ?";
+        $stmt = sqlsrv_query($conn, $sql, array($partId));
+        
+        if ($stmt && $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+            $selectedPart = $row;
+            $selectedStageIndex = $stageIndex;
+            
+            // Get stage metadata
+            $sql = "SELECT table_name, stage_names FROM stages_metadata WHERE part_id = ?";
+            $stmt = sqlsrv_query($conn, $sql, array($partId));
+            
+            if ($stmt && $metaRow = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                $stageMetadata = $metaRow;
+                $stageMetadata['stage_names'] = json_decode($metaRow['stage_names'], true);
+                $message = '✓ Stage selected! Now scan the bin barcode.';
+                $messageType = 'success';
+            }
+        }
+    } elseif (isset($_POST['action']) && $_POST['action'] === 'scan_bin') {
+        $partId = intval($_POST['part_id']);
+        $stageIndex = intval($_POST['stage_index']);
+        $binBarcode = trim($_POST['bin_barcode']);
+        
+        // Reload part and stage info
+        $sql = "SELECT id, part_code, part_name FROM parts WHERE id = ?";
+        $stmt = sqlsrv_query($conn, $sql, array($partId));
+        
+        if ($stmt && $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+            $selectedPart = $row;
+            $selectedStageIndex = $stageIndex;
+            
+            // Get stage metadata
+            $sql = "SELECT table_name, stage_names FROM stages_metadata WHERE part_id = ?";
+            $stmt = sqlsrv_query($conn, $sql, array($partId));
+            
+            if ($stmt && $metaRow = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                $stageMetadata = $metaRow;
+                $stageMetadata['stage_names'] = json_decode($metaRow['stage_names'], true);
+            }
+        }
+        
+        if (!empty($binBarcode)) {
             // Check material_in table for bin barcode with open status
             $sql = "SELECT m.*, p.part_code, p.part_name, w.scale_code, w.scale_name 
                     FROM material_in m 
@@ -27,46 +110,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     WHERE (w.scale_code = ? OR m.wing_scale_code = ?) 
                     AND LOWER(m.production_status) = 'open' 
                     ORDER BY m.created_at DESC";
-            $stmt = sqlsrv_query($conn, $sql, array($wingScaleBarcode, $wingScaleBarcode));
+            $stmt = sqlsrv_query($conn, $sql, array($binBarcode, $binBarcode));
             
             if ($stmt && $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
                 // Found open material with this bin
-                $materialData = $row;
-                $selectedWingScale = $wingScaleBarcode;
-                $selectedPart = array(
-                    'id' => $row['part_id'],
-                    'part_code' => $row['part_code'],
-                    'part_name' => $row['part_name']
-                );
                 
-                // Get stage metadata
-                $sql = "SELECT table_name, stage_names FROM stages_metadata WHERE part_id = ?";
-                $stmt = sqlsrv_query($conn, $sql, array($row['part_id']));
-                
-                if ($stmt && $metaRow = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
-                    $stageMetadata = $metaRow;
-                    $stageMetadata['stage_names'] = json_decode($metaRow['stage_names'], true);
+                // Verify part matches (STRICT MODE)
+                if ($row['part_id'] == $partId) {
+                    // Success - parts match, proceed to Step 4
+                    $materialData = $row;
+                    $selectedBin = $binBarcode;
+                    $message = '✓ Bin verified! Material matches selected part. Enter quantity to save.';
+                    $messageType = 'success';
                 } else {
-                    $message = 'No stages configured for this part';
-                    $messageType = 'warning';
+                    // Error - parts don't match, stay on Step 3
+                    $selectedBin = null;
+                    $message = '✗ Error: Bin contains ' . htmlspecialchars($row['part_code']) . ' but you selected ' . htmlspecialchars($selectedPart['part_code']) . '. Please scan the correct bin or start over.';
+                    $messageType = 'error';
                 }
-                
-                $message = '✓ Bin verified! Material found with OPEN status.';
-                $messageType = 'success';
             } else {
                 // No open material found for this bin
-                $message = '✗ Warning: No OPEN material found for bin barcode "' . htmlspecialchars($wingScaleBarcode) . '". Please check the barcode or material status.';
+                $message = '✗ Warning: No OPEN material found for bin barcode "' . htmlspecialchars($binBarcode) . '". Please check the barcode or material status.';
                 $messageType = 'error';
             }
         } else {
             $message = 'Please scan or enter bin barcode';
             $messageType = 'error';
         }
-    } elseif (isset($_POST['action']) && $_POST['action'] === 'select_stage') {
+    } elseif (isset($_POST['action']) && $_POST['action'] === 'save_stage_data') {
         $partId = intval($_POST['part_id']);
         $stageIndex = intval($_POST['stage_index']);
         $stageQuantity = isset($_POST['stage_quantity']) ? intval($_POST['stage_quantity']) : null;
-        $wingScaleBarcode = isset($_POST['wing_scale_barcode']) ? trim($_POST['wing_scale_barcode']) : null;
+        $binBarcode = isset($_POST['bin_barcode']) ? trim($_POST['bin_barcode']) : null;
         
         // Get stage metadata and table name
         $sql = "SELECT table_name, stage_names FROM stages_metadata WHERE part_id = ?";
@@ -84,21 +159,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             
             // Get material data to retrieve batch number
             $batchNumber = '';
-            if ($wingScaleBarcode) {
+            if ($binBarcode) {
                 $sql = "SELECT m.batch_number 
                         FROM material_in m 
                         LEFT JOIN wing_scales w ON m.wing_scale_id = w.id 
                         WHERE (w.scale_code = ? OR m.wing_scale_code = ?) 
                         AND LOWER(m.production_status) = 'open' 
                         ORDER BY m.created_at DESC";
-                $stmt = sqlsrv_query($conn, $sql, array($wingScaleBarcode, $wingScaleBarcode));
+                $stmt = sqlsrv_query($conn, $sql, array($binBarcode, $binBarcode));
                 if ($stmt && $batchRow = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
                     $batchNumber = $batchRow['batch_number'];
                 }
             }
             
             // Format: "Bin - Batch Number"
-            $stageValue = $wingScaleBarcode . ' - ' . $batchNumber;
+            $stageValue = $binBarcode . ' - ' . $batchNumber;
             
             // Validate quantity: Check if previous stage exists and compare quantities
             if ($stageIndex > 0) {
@@ -135,9 +210,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         if ($stmt && $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
                             $selectedPart = $row;
                             $selectedStageIndex = null;
-                            $selectedWingScale = $wingScaleBarcode;
+                            $selectedBin = $binBarcode;
                             
-                            if ($wingScaleBarcode) {
+                            if ($binBarcode) {
                                 $sql = "SELECT m.*, p.part_code, p.part_name, w.scale_code, w.scale_name 
                                         FROM material_in m 
                                         LEFT JOIN parts p ON m.part_id = p.id
@@ -145,7 +220,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                                         WHERE (w.scale_code = ? OR m.wing_scale_code = ?) 
                                         AND LOWER(m.production_status) = 'open' 
                                         ORDER BY m.created_at DESC";
-                                $stmt = sqlsrv_query($conn, $sql, array($wingScaleBarcode, $wingScaleBarcode));
+                                $stmt = sqlsrv_query($conn, $sql, array($binBarcode, $binBarcode));
                                 if ($stmt) {
                                     $materialData = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC);
                                 }
@@ -161,7 +236,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                         
                         // Skip the rest of the processing
-                        goto skip_save;
+                        return;
                     }
                 }
             }
@@ -188,8 +263,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt = sqlsrv_query($conn, $sql, array($stageValue, $stageQuantity, $rowId));
                 
                 if ($stmt) {
-                    $message = '✓ Stage data updated successfully! You can scan a new bin.';
+                    $message = '✓ Stage data updated successfully! Scan next bin for same part/stage.';
                     $messageType = 'success';
+                    // Keep part and stage locked - only reset bin data to scan next bin
+                    $selectedBin = null;
+                    $materialData = null;
+                    // $selectedPart, $selectedStageIndex, and $stageMetadata remain locked
                 } else {
                     $message = '✗ Error updating stage data: ' . print_r(sqlsrv_errors(), true);
                     $messageType = 'error';
@@ -201,17 +280,41 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $stmt = sqlsrv_query($conn, $sql, array($partId, $stageValue, $stageQuantity));
                 
                 if ($stmt) {
-                    $message = '✓ Stage data saved successfully! You can scan a new bin.';
+                    $message = '✓ Stage data saved successfully! Scan next bin for same part/stage.';
                     $messageType = 'success';
+                    // Keep part and stage locked - only reset bin data to scan next bin
+                    $selectedBin = null;
+                    $materialData = null;
+                    // $selectedPart, $selectedStageIndex, and $stageMetadata remain locked
                 } else {
                     $message = '✗ Error saving stage data: ' . print_r(sqlsrv_errors(), true);
                     $messageType = 'error';
                 }
             }
+            
+            // Reload part and stage info to keep them locked after save
+            if ($messageType === 'success' && $partId && $stageIndex !== null) {
+                $sql = "SELECT id, part_code, part_name FROM parts WHERE id = ?";
+                $stmt = sqlsrv_query($conn, $sql, array($partId));
+                
+                if ($stmt && $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                    $selectedPart = $row;
+                    $selectedStageIndex = $stageIndex;
+                    
+                    // Get stage metadata
+                    $sql = "SELECT table_name, stage_names FROM stages_metadata WHERE part_id = ?";
+                    $stmt = sqlsrv_query($conn, $sql, array($partId));
+                    
+                    if ($stmt && $metaRow = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
+                        $stageMetadata = $metaRow;
+                        $stageMetadata['stage_names'] = json_decode($metaRow['stage_names'], true);
+                    }
+                }
+            }
         }
         
         skip_save:
-        // Reset all variables to go back to Step 1 (scan bin)
+        // Part and stage remain locked after successful save
     } elseif (isset($_POST['action']) && $_POST['action'] === 'scan_data') {
         $partId = intval($_POST['part_id']);
         $tableName = $_POST['table_name'];
@@ -638,7 +741,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body>
     <div class="container">
         <h1>Stage Scanning</h1>
-        <p class="subtitle">Scan bin, select stage, then scan</p>
+        <p class="subtitle">Two-phase workflow: Setup → Execution</p>
 
         <?php if ($message): ?>
             <div class="message <?php echo $messageType; ?>">
@@ -646,42 +749,99 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         <?php endif; ?>
 
-        <?php if (!$selectedWingScale): ?>
-            <!-- Step 1: Scan Bin -->
+        <!-- Phase indicator -->
+        <div style="display: flex; justify-content: space-around; margin: 30px 0; gap: 20px;">
+            <!-- SECTION 1: Setup Phase (Steps 1-2) -->
+            <div style="flex: 1; border: 2px solid <?php echo (!$selectedPart || ($selectedPart && $selectedStageIndex === null && !$selectedBin)) ? '#3b82f6' : '#38ef7d'; ?>; border-radius: 12px; padding: 20px; background: <?php echo (!$selectedPart || ($selectedPart && $selectedStageIndex === null && !$selectedBin)) ? '#eff6ff' : '#f0fdf4'; ?>;">
+                <h3 style="margin: 0 0 15px 0; color: <?php echo (!$selectedPart || ($selectedPart && $selectedStageIndex === null && !$selectedBin)) ? '#3b82f6' : '#38ef7d'; ?>; font-size: 16px; text-align: center;">
+                    <?php echo (!$selectedPart || ($selectedPart && $selectedStageIndex === null && !$selectedBin)) ? '📋 SECTION 1: SETUP PHASE' : '✓ SECTION 1: COMPLETED'; ?>
+                </h3>
+                <div style="display: flex; justify-content: space-around; align-items: center;">
+                    <div class="step <?php echo (!$selectedPart) ? 'active' : 'completed'; ?>">
+                        <div class="step-number">1</div>
+                        <div class="step-label">Select Part</div>
+                    </div>
+                    <div style="width: 40px; height: 2px; background: #e0e0e0;"></div>
+                    <div class="step <?php echo ($selectedPart && $selectedStageIndex === null && !$selectedBin) ? 'active' : (($selectedStageIndex !== null || $selectedBin) ? 'completed' : ''); ?>">
+                        <div class="step-number">2</div>
+                        <div class="step-label">Select Stage</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- SECTION 2: Execution Phase (Steps 3-4) -->
+            <div style="flex: 1; border: 2px solid <?php echo ($selectedStageIndex !== null || $selectedBin) ? '#3b82f6' : '#cbd5e1'; ?>; border-radius: 12px; padding: 20px; background: <?php echo ($selectedStageIndex !== null || $selectedBin) ? '#eff6ff' : '#f8fafc'; ?>; opacity: <?php echo ($selectedStageIndex === null && !$selectedBin) ? '0.5' : '1'; ?>;">
+                <h3 style="margin: 0 0 15px 0; color: <?php echo ($selectedStageIndex !== null || $selectedBin) ? '#3b82f6' : '#94a3b8'; ?>; font-size: 16px; text-align: center;">
+                    <?php echo ($selectedStageIndex === null && !$selectedBin) ? '⏳ SECTION 2: EXECUTION PHASE' : ($selectedStageIndex !== null ? '✓ SECTION 2: IN PROGRESS' : '📦 SECTION 2: ACTIVE'); ?>
+                </h3>
+                <div style="display: flex; justify-content: space-around; align-items: center;">
+                    <div class="step <?php echo (!$selectedBin && $selectedStageIndex !== null) ? 'active' : (($selectedStageIndex !== null) ? 'completed' : ''); ?>">
+                        <div class="step-number">3</div>
+                        <div class="step-label">Verify Bin</div>
+                    </div>
+                    <div style="width: 40px; height: 2px; background: #e0e0e0;"></div>
+                    <div class="step <?php echo ($selectedStageIndex !== null) ? 'active' : ''; ?>">
+                        <div class="step-number">4</div>
+                        <div class="step-label">Enter Quantity</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Reset button - show when part is locked -->
+        <?php if ($selectedPart): ?>
+            <div style="text-align: center; margin: 20px 0;">
+                <form method="POST" action="" style="display: inline;">
+                    <input type="hidden" name="action" value="reset_workflow">
+                    <button type="submit" class="btn" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 4px rgba(239, 68, 68, 0.3); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(239, 68, 68, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(239, 68, 68, 0.3)';">
+                        🔄 Start New Selection (Change Part/Stage)
+                    </button>
+                </form>
+                <p style="font-size: 12px; color: #64748b; margin-top: 8px;">
+                    Currently locked: <strong style="color: #3b82f6;"><?php echo htmlspecialchars($selectedPart['part_code']); ?></strong>
+                    <?php if ($selectedStageIndex !== null && $stageMetadata): ?>
+                        → <strong style="color: #3b82f6;">Stage <?php echo ($selectedStageIndex + 1); ?>: <?php echo htmlspecialchars($stageMetadata['stage_names'][$selectedStageIndex]); ?></strong>
+                    <?php endif; ?>
+                </p>
+            </div>
+        <?php endif; ?>
+
+        <?php if (!$selectedPart): ?>
+            <!-- Step 1: Select Part -->
+            <?php
+            // Get all parts
+            $sql = "SELECT id, part_code, part_name FROM parts WHERE status = 'active' ORDER BY part_code";
+            $partsStmt = sqlsrv_query($conn, $sql);
+            ?>
             <form method="POST" action="">
-                <input type="hidden" name="action" value="scan_wing_scale">
+                <input type="hidden" name="action" value="select_part">
                 
                 <div class="form-group">
-                    <label for="wing_scale_barcode">Step 1: Scan Bin Barcode</label>
-                    <input type="text" 
-                           id="wing_scale_barcode" 
-                           name="wing_scale_barcode" 
-                           placeholder="Scan or enter bin barcode" 
-                           required 
-                           autofocus>
+                    <label for="part_id">Step 1: Select Part</label>
+                    <select id="part_id" name="part_id" required autofocus>
+                        <option value="">-- Choose a Part --</option>
+                        <?php while ($partsStmt && $part = sqlsrv_fetch_array($partsStmt, SQLSRV_FETCH_ASSOC)): ?>
+                            <option value="<?php echo $part['id']; ?>">
+                                <?php echo htmlspecialchars($part['part_code'] . ' - ' . $part['part_name']); ?>
+                            </option>
+                        <?php endwhile; ?>
+                    </select>
                 </div>
 
-                <button type="submit" class="btn btn-primary">Verify Bin</button>
+                <button type="submit" class="btn btn-primary">Next: Select Stage</button>
             </form>
 
-        <?php elseif ($selectedStageIndex === null): ?>
+        <?php elseif ($selectedStageIndex === null && !$selectedBin): ?>
             <!-- Step 2: Select Stage -->
-
-            <?php if ($materialData): ?>
-            <div class="part-info" style="border-left-color: #38ef7d; background: #f0fdf4;">
-                <h3>Material Information</h3>
-                <p><strong>Bin:</strong> <?php echo htmlspecialchars($selectedWingScale); ?></p>
-                <p><strong>Batch Number:</strong> <?php echo htmlspecialchars($materialData['batch_number'] ?? 'N/A'); ?></p>
-                <p><strong>Quantity:</strong> <?php echo htmlspecialchars($materialData['in_quantity'] ?? 'N/A'); ?></p>
-                <p><strong>Material Code:</strong> <?php echo htmlspecialchars($materialData['part_code'] ?? 'N/A'); ?></p>
-                <p><strong>Status:</strong> <span style="color: #38ef7d; font-weight: bold;">OPEN</span></p>
+            <div class="part-info" style="border-left-color: #3b82f6; background: #eff6ff;">
+                <h3>Selected Part</h3>
+                <p><strong>Part Code:</strong> <?php echo htmlspecialchars($selectedPart['part_code']); ?></p>
+                <p><strong>Part Name:</strong> <?php echo htmlspecialchars($selectedPart['part_name']); ?></p>
             </div>
-            <?php endif; ?>
 
             <form method="POST" action="">
                 <input type="hidden" name="action" value="select_stage">
                 <input type="hidden" name="part_id" value="<?php echo $selectedPart['id']; ?>">
-                <input type="hidden" name="wing_scale_barcode" value="<?php echo htmlspecialchars($selectedWingScale); ?>">
                 
                 <div class="form-group">
                     <label for="stage_index">Step 2: Select Stage</label>
@@ -695,17 +855,69 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </select>
                 </div>
 
+                <button type="submit" class="btn btn-primary">Next: Scan Bin</button>
+            </form>
+
+        <?php elseif (!$selectedBin && $selectedStageIndex !== null): ?>
+            <!-- Step 3: Scan Bin -->
+            <div class="part-info" style="border-left-color: #3b82f6; background: #eff6ff;">
+                <h3>Selected Part & Stage</h3>
+                <p><strong>Part Code:</strong> <?php echo htmlspecialchars($selectedPart['part_code']); ?></p>
+                <p><strong>Part Name:</strong> <?php echo htmlspecialchars($selectedPart['part_name']); ?></p>
+                <p><strong>Stage:</strong> Stage <?php echo ($selectedStageIndex + 1); ?> - <?php echo htmlspecialchars($stageMetadata['stage_names'][$selectedStageIndex]); ?></p>
+            </div>
+
+            <form method="POST" action="">
+                <input type="hidden" name="action" value="scan_bin">
+                <input type="hidden" name="part_id" value="<?php echo $selectedPart['id']; ?>">
+                <input type="hidden" name="stage_index" value="<?php echo $selectedStageIndex; ?>">
+                
                 <div class="form-group">
-                    <label for="stage_quantity">Production Quantity for This Stage</label>
+                    <label for="bin_barcode">Step 3: Scan Bin Barcode</label>
+                    <input type="text" 
+                           id="bin_barcode" 
+                           name="bin_barcode" 
+                           placeholder="Scan or enter bin barcode" 
+                           required 
+                           autofocus>
+                </div>
+
+                <button type="submit" class="btn btn-primary">Verify Bin</button>
+            </form>
+
+        <?php elseif ($selectedStageIndex !== null): ?>
+            <!-- Step 4: Enter Quantity and Save -->
+            <?php if ($materialData): ?>
+            <div class="part-info" style="border-left-color: #38ef7d; background: #f0fdf4;">
+                <h3>Material Information</h3>
+                <p><strong>Part Code:</strong> <?php echo htmlspecialchars($selectedPart['part_code']); ?></p>
+                <p><strong>Part Name:</strong> <?php echo htmlspecialchars($selectedPart['part_name']); ?></p>
+                <p><strong>Stage:</strong> Stage <?php echo ($selectedStageIndex + 1); ?> - <?php echo htmlspecialchars($stageMetadata['stage_names'][$selectedStageIndex]); ?></p>
+                <p><strong>Bin:</strong> <?php echo htmlspecialchars($selectedBin); ?></p>
+                <p><strong>Batch Number:</strong> <?php echo htmlspecialchars($materialData['batch_number'] ?? 'N/A'); ?></p>
+                <p><strong>Available Quantity:</strong> <?php echo htmlspecialchars($materialData['in_quantity'] ?? 'N/A'); ?></p>
+                <p><strong>Status:</strong> <span style="color: #38ef7d; font-weight: bold;">OPEN</span></p>
+            </div>
+            <?php endif; ?>
+
+            <form method="POST" action="">
+                <input type="hidden" name="action" value="save_stage_data">
+                <input type="hidden" name="part_id" value="<?php echo $selectedPart['id']; ?>">
+                <input type="hidden" name="stage_index" value="<?php echo $selectedStageIndex; ?>">
+                <input type="hidden" name="bin_barcode" value="<?php echo htmlspecialchars($selectedBin); ?>">
+                
+                <div class="form-group">
+                    <label for="stage_quantity">Step 4: Enter Production Quantity</label>
                     <input type="number" 
                            id="stage_quantity" 
                            name="stage_quantity" 
-                           placeholder="Enter quantity" 
+                           placeholder="Enter quantity for this stage" 
                            min="0"
-                           required>
+                           required
+                           autofocus>
                 </div>
 
-                <button type="submit" class="btn btn-primary">Save</button>
+                <button type="submit" class="btn btn-primary">Save Stage Data</button>
             </form>
 
         <?php endif; ?>
