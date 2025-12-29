@@ -25,8 +25,8 @@
             <span>Stages Management</span>
         </a>
         <a href="wing-scale-management.php" class="nav-item <?php echo ($activePage == 'wing-scale-management') ? 'active' : ''; ?>">
-            <i class="fas fa-balance-scale"></i>
-            <span>Wing Scale Management</span>
+            <i class="fas fa-cart-shopping"></i>
+            <span>Bin Management</span>
         </a>
         <a href="admin-material-in.php" class="nav-item <?php echo ($activePage == 'material-in') ? 'active' : ''; ?>">
             <i class="fas fa-inbox"></i>

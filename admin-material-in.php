@@ -87,7 +87,7 @@ try {
                         $lastStageColumn = 'stage_' . $lastStageNumber . '_' . strtolower(preg_replace('/[^a-zA-Z0-9]/', '_', $lastStageName));
                         $lastStageQtyColumn = $lastStageColumn . '_qty';
                         
-                        // Build search value (wing_scale - batch_number)
+                        // Build search value (bin - batch_number)
                         $searchValue = $row['wing_scale_code'] . ' - ' . $row['batch_number'];
                         
                         // Query the part table for last stage quantity
@@ -310,7 +310,7 @@ foreach ($allMaterials as $material) {
                         <thead>
                             <tr>
                                 <th>Date & Time</th>
-                                <th>Wing Scale</th>
+                                <th>Bin</th>
                                 <th>Part Code</th>
                                 <th>In Quantity</th>
                                 <th>Final Production</th>
@@ -533,7 +533,7 @@ foreach ($allMaterials as $material) {
             }
 
             // Get headers - use the new column structure
-            const headers = ['Date & Time', 'Wing Scale', 'Part Code', 'In Quantity', 'Final Production', 'Scrap', 'Batch Number', 'Status'];
+            const headers = ['Date & Time', 'Bin', 'Part Code', 'In Quantity', 'Final Production', 'Scrap', 'Batch Number', 'Status'];
 
             // Get data
             const data = [];

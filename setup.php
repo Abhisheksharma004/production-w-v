@@ -211,9 +211,9 @@ BEGIN
     ALTER TABLE material_in ADD wing_scale_name NVARCHAR(200) NULL
 END
 ";
-executeQuery($conn, $sql, "Add Production Closure and Wing Scale Columns");
+executeQuery($conn, $sql, "Add Production Closure and Bin Columns");
 
-// 9. Create Wing Scales Table
+// 9. Create Bins Table
 $sql = "
 IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='wing_scales' AND xtype='U')
 BEGIN
@@ -227,7 +227,7 @@ BEGIN
     )
 END
 ";
-executeQuery($conn, $sql, "Create Wing Scales Table");
+executeQuery($conn, $sql, "Create Bins Table");
 
 // Close connection
 closeConnection($conn);
@@ -394,7 +394,7 @@ closeConnection($conn);
         <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0; color: #666; font-size: 12px; text-align: center;">
             <p><strong>Database:</strong> product-w</p>
             <p><strong>Server:</strong> MSI\SQLEXPRESS</p>
-            <p><strong>Tables Created:</strong> users, lines, parts, stages_metadata, material_in, wing_scales</p>
+            <p><strong>Tables Created:</strong> users, lines, parts, stages_metadata, material_in, wing_scales (bins)</p>
         </div>
     </div>
 </body>

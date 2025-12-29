@@ -12,7 +12,7 @@ require_once 'config/database.php';
 
 $current_user = $_SESSION['username'];
 $activePage = 'wing-scale-management';
-$pageTitle = 'Wing Scale Management';
+$pageTitle = 'Bin Management';
 
 // Handle form submissions
 $message = '';
@@ -23,7 +23,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
     
     if (isset($_POST['action'])) {
         if ($_POST['action'] == 'add') {
-            // Add new wing scale
+            // Add new bin
             $scaleName = trim($_POST['scale_name']);
             $scaleCode = trim($_POST['scale_code']);
             $status = $_POST['status'];
@@ -33,17 +33,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $stmt = sqlsrv_query($conn, $sql, $params);
             
             if ($stmt) {
-                $_SESSION['message'] = "Wing scale added successfully!";
+                $_SESSION['message'] = "Bin added successfully!";
                 $_SESSION['messageType'] = "success";
                 sqlsrv_free_stmt($stmt);
             } else {
-                $_SESSION['message'] = "Error adding wing scale.";
+                $_SESSION['message'] = "Error adding bin.";
                 $_SESSION['messageType'] = "error";
             }
             header("Location: wing-scale-management.php");
             exit();
         } elseif ($_POST['action'] == 'edit') {
-            // Update existing wing scale
+            // Update existing bin
             $scaleId = (int)$_POST['scale_id'];
             $scaleName = trim($_POST['scale_name']);
             $scaleCode = trim($_POST['scale_code']);
@@ -54,17 +54,17 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $stmt = sqlsrv_query($conn, $sql, $params);
             
             if ($stmt) {
-                $_SESSION['message'] = "Wing scale updated successfully!";
+                $_SESSION['message'] = "Bin updated successfully!";
                 $_SESSION['messageType'] = "success";
                 sqlsrv_free_stmt($stmt);
             } else {
-                $_SESSION['message'] = "Error updating wing scale.";
+                $_SESSION['message'] = "Error updating bin.";
                 $_SESSION['messageType'] = "error";
             }
             header("Location: wing-scale-management.php");
             exit();
         } elseif ($_POST['action'] == 'delete') {
-            // Delete wing scale
+            // Delete bin
             $scaleId = (int)$_POST['scale_id'];
             
             $sql = "DELETE FROM wing_scales WHERE id = ?";
@@ -72,11 +72,11 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST') {
             $stmt = sqlsrv_query($conn, $sql, $params);
             
             if ($stmt) {
-                $_SESSION['message'] = "Wing scale deleted successfully!";
+                $_SESSION['message'] = "Bin deleted successfully!";
                 $_SESSION['messageType'] = "success";
                 sqlsrv_free_stmt($stmt);
             } else {
-                $_SESSION['message'] = "Error deleting wing scale.";
+                $_SESSION['message'] = "Error deleting bin.";
                 $_SESSION['messageType'] = "error";
             }
             header("Location: wing-scale-management.php");
@@ -93,7 +93,7 @@ if (isset($_SESSION['message'])) {
     unset($_SESSION['messageType']);
 }
 
-// Fetch all wing scales
+// Fetch all bins
 $scales = [];
 try {
     $conn = getSQLSrvConnection();
@@ -117,7 +117,7 @@ try {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Wing Scale Management - Production Management System</title>
+    <title>Bin Management - Production Management System</title>
     <link rel="stylesheet" href="css/dashboard.css">
     <link rel="stylesheet" href="css/line-management.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -139,23 +139,23 @@ try {
 
             <div class="page-header">
                 <div class="page-title">
-                    <h2>Wing Scale Management</h2>
+                    <h2>Bin Management</h2>
                     <p>Manage your weighing scales and equipment</p>
                 </div>
                 <button class="btn-primary" onclick="openAddModal()">
-                    <i class="fas fa-plus"></i> Add New Wing Scale
+                    <i class="fas fa-plus"></i> Add New Bin
                 </button>
             </div>
 
-            <!-- Wing Scales Table -->
+            <!-- Bins Table -->
             <div class="table-container">
                 <?php if (empty($scales)): ?>
                     <div class="empty-state">
-                        <i class="fas fa-balance-scale"></i>
-                        <h3>No Wing Scales Yet</h3>
-                        <p>Get started by adding your first wing scale</p>
+                        <i class="fas fa-cart-shopping"></i>
+                        <h3>No Bins Yet</h3>
+                        <p>Get started by adding your first bin</p>
                         <button class="btn-primary" onclick="openAddModal()">
-                            <i class="fas fa-plus"></i> Add Wing Scale
+                            <i class="fas fa-plus"></i> Add Bin
                         </button>
                     </div>
                 <?php else: ?>
@@ -204,7 +204,7 @@ try {
     <div class="modal" id="scaleModal">
         <div class="modal-content">
             <div class="modal-header">
-                <h3 id="modalTitle">Add New Wing Scale</h3>
+                <h3 id="modalTitle">Add New Bin</h3>
                 <button class="close-btn" onclick="closeModal()">&times;</button>
             </div>
             <form method="POST" id="scaleForm">
@@ -218,7 +218,7 @@ try {
                 
                 <div class="form-group">
                     <label for="scaleName">Scale Name *</label>
-                    <input type="text" id="scaleName" name="scale_name" required placeholder="Wing Scale A1">
+                    <input type="text" id="scaleName" name="scale_name" required placeholder="Bin A1">
                 </div>
                 
                 <div class="form-group">
@@ -233,7 +233,7 @@ try {
                 
                 <div class="modal-footer">
                     <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
-                    <button type="submit" class="btn-primary" id="submitBtn">Add Wing Scale</button>
+                    <button type="submit" class="btn-primary" id="submitBtn">Add Bin</button>
                 </div>
             </form>
         </div>
@@ -266,17 +266,17 @@ try {
     <script>
         // Modal functions
         function openAddModal() {
-            document.getElementById('modalTitle').textContent = 'Add New Wing Scale';
+            document.getElementById('modalTitle').textContent = 'Add New Bin';
             document.getElementById('formAction').value = 'add';
-            document.getElementById('submitBtn').textContent = 'Add Wing Scale';
+            document.getElementById('submitBtn').textContent = 'Add Bin';
             document.getElementById('scaleForm').reset();
             document.getElementById('scaleModal').style.display = 'flex';
         }
 
         function editScale(scale) {
-            document.getElementById('modalTitle').textContent = 'Edit Wing Scale';
+            document.getElementById('modalTitle').textContent = 'Edit Bin';
             document.getElementById('formAction').value = 'edit';
-            document.getElementById('submitBtn').textContent = 'Update Wing Scale';
+            document.getElementById('submitBtn').textContent = 'Update Bin';
             document.getElementById('scaleId').value = scale.id;
             document.getElementById('scaleCode').value = scale.scale_code;
             document.getElementById('scaleName').value = scale.scale_name;

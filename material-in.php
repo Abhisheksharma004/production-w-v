@@ -77,7 +77,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
     $receivedDateTime = $receivedDate . ' ' . $receivedTime . ':00';
     $batchNumber = trim($_POST['batch_number']);
     
-    // Get wing scale information
+    // Get bin information
     $wingScaleName = '';
     $wingScaleCode = '';
     $sql = "SELECT scale_code, scale_name FROM wing_scales WHERE id = ?";
@@ -172,7 +172,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'GET' && isset($_GET['get_last_stage_quantity'
             $lastStageColumn = 'stage_' . $lastStageNumber . '_' . strtolower(preg_replace('/[^a-zA-Z0-9]/', '_', $lastStageName));
             $lastStageQtyColumn = $lastStageColumn . '_qty';
             
-            // Build search value (wing_scale - batch_number)
+            // Build search value (bin - batch_number)
             $searchValue = $wingScaleCode . ' - ' . $batchNumber;
             
             // Query the part table for last stage quantity
@@ -209,20 +209,20 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
     $receivedDateTime = $receivedDate . ' ' . $receivedTime . ':00'; // Add seconds for proper datetime format
     $batchNumber = trim($_POST['batch_number']);
     
-    // Check if wing scale already has open production for this line
+    // Check if bin already has open production for this line
     $checkSql = "SELECT COUNT(*) as count FROM material_in WHERE wing_scale_id = ? AND line_id = ? AND LOWER(production_status) = 'open'";
     $checkStmt = sqlsrv_query($conn, $checkSql, array($wingScaleId, $line_id));
     
     if ($checkStmt && $checkRow = sqlsrv_fetch_array($checkStmt, SQLSRV_FETCH_ASSOC)) {
         if ($checkRow['count'] > 0) {
-            $_SESSION['message'] = "This wing scale already has an open production! Please close the existing production before adding new material.";
+            $_SESSION['message'] = "This bin already has an open production! Please close the existing production before adding new material.";
             $_SESSION['messageType'] = 'error';
             header("Location: material-in.php");
             exit();
         }
     }
     
-    // Get wing scale information
+    // Get bin information
     $wingScaleName = '';
     $wingScaleCode = '';
     $sql = "SELECT scale_code, scale_name FROM wing_scales WHERE id = ?";
@@ -261,7 +261,7 @@ if ($_SERVER['REQUEST_METHOD'] == 'POST' && isset($_POST['action']) && $_POST['a
     exit();
 }
 
-// Fetch wing scales for dropdown with open status check
+// Fetch bins for dropdown with open status check
 $wingScales = [];
 try {
     $conn = getSQLSrvConnection();
@@ -337,7 +337,7 @@ try {
                         $lastStageColumn = 'stage_' . $lastStageNumber . '_' . strtolower(preg_replace('/[^a-zA-Z0-9]/', '_', $lastStageName));
                         $lastStageQtyColumn = $lastStageColumn . '_qty';
                         
-                        // Build search value (wing_scale - batch_number)
+                        // Build search value (bin - batch_number)
                         $searchValue = $row['wing_scale_code'] . ' - ' . $row['batch_number'];
                         
                         // Query the part table for last stage quantity
@@ -387,6 +387,82 @@ if (isset($_SESSION['message'])) {
     <link rel="stylesheet" href="css/line-management.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="css/material-in.css">
+    <style>
+        /* Custom styling for material in page header */
+        .header {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            padding: 12px 20px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+        
+        .header-left .page-title h1 {
+            color: white;
+            font-size: 22px;
+            font-weight: 600;
+            margin: 0 0 3px 0;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .header-left .page-title p {
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 13px;
+            margin: 0;
+        }
+        
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 6px 12px;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .user-avatar {
+            font-size: 32px;
+            color: white;
+            display: flex;
+            align-items: center;
+        }
+        
+        .user-details {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+        }
+        
+        .user-name {
+            color: white;
+            font-size: 13px;
+            font-weight: 600;
+        }
+        
+        .user-role {
+            color: rgba(255, 255, 255, 0.7);
+            font-size: 11px;
+        }
+        
+        .logout {
+            color: white;
+            font-size: 20px;
+            padding: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            transition: all 0.3s;
+            text-decoration: none;
+        }
+        
+        .logout:hover {
+            background: rgba(255, 255, 255, 0.2);
+            transform: scale(1.05);
+        }
+    </style>
 </head>
 <body>
     <div class="sidebar">
@@ -509,9 +585,9 @@ if (isset($_SESSION['message'])) {
                     
                     <div class="form-row">
                         <div class="form-group">
-                            <label for="wing_scale_id">Select Wing Scale *</label>
+                            <label for="wing_scale_id">Select Bin *</label>
                             <select id="wing_scale_id" name="wing_scale_id" required onchange="checkWingScaleStatus(this)">
-                                <option value="">-- Select Wing Scale --</option>
+                                <option value="">-- Select Bin --</option>
                                 <?php foreach ($wingScales as $scale): ?>
                                     <option value="<?php echo $scale['id']; ?>" 
                                             data-has-open="<?php echo $scale['has_open_production']; ?>"
@@ -522,7 +598,7 @@ if (isset($_SESSION['message'])) {
                                 <?php endforeach; ?>
                             </select>
                             <small id="wing_scale_warning" style="color: #ef4444; display: none; margin-top: 5px;">
-                                <i class="fas fa-exclamation-triangle"></i> This wing scale already has an open production. Please close it first.
+                                <i class="fas fa-exclamation-triangle"></i> This bin already has an open production. Please close it first.
                             </small>
                         </div>
 
@@ -670,7 +746,7 @@ if (isset($_SESSION['message'])) {
                         <thead>
                             <tr>
                                 <th><i class="far fa-calendar-alt"></i> Date & Time</th>
-                                <th><i class="fas fa-balance-scale"></i> Wing Scale</th>
+                                <th><i class="fas fa-cart-shopping"></i> Bin</th>
                                 <th><i class="fas fa-barcode"></i> Part Code</th>
                                 <th style="display: none;"><i class="fas fa-box"></i> Part Name</th>
                                 <th style="width: 120px;"><i class="fas fa-arrow-down"></i> In Quantity</th>
@@ -857,14 +933,14 @@ if (isset($_SESSION['message'])) {
             document.getElementById('form_action').value = 'add';
             document.getElementById('material_id').value = '';
             document.getElementById('modal_title').innerHTML = '<i class="fas fa-plus-circle"></i> Record Material Receipt';
-            // Hide wing scale warning
+            // Hide bin warning
             const warningElement = document.getElementById('wing_scale_warning');
             if (warningElement) {
                 warningElement.style.display = 'none';
             }
         }
 
-        // Check wing scale status on selection
+        // Check bin status on selection
         function checkWingScaleStatus(selectElement) {
             const selectedOption = selectElement.options[selectElement.selectedIndex];
             const warningElement = document.getElementById('wing_scale_warning');
@@ -875,7 +951,7 @@ if (isset($_SESSION['message'])) {
                 
                 // Show alert as well
                 setTimeout(() => {
-                    alert('This wing scale already has an open production!\\n\\nPlease close the existing production before adding new material with this wing scale.');
+                    alert('This bin already has an open production!\\n\\nPlease close the existing production before adding new material with this bin.');
                 }, 100);
             } else {
                 warningElement.style.display = 'none';
@@ -1084,7 +1160,7 @@ if (isset($_SESSION['message'])) {
             let excelData = [];
             
             // Add headers
-            const headers = ['Date & Time', 'Wing Scale', 'Part Code', 'Part Name', 'In Quantity', 'Final Production', 'Scrap', 'Batch Number', 'Status'];
+            const headers = ['Date & Time', 'Bin', 'Part Code', 'Part Name', 'In Quantity', 'Final Production', 'Scrap', 'Batch Number', 'Status'];
             excelData.push(headers);
             
             // Get all table rows (only export visible/filtered rows)
