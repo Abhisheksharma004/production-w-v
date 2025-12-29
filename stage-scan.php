@@ -43,8 +43,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 if ($stmt && $metaRow = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
                     $stageMetadata = $metaRow;
                     $stageMetadata['stage_names'] = json_decode($metaRow['stage_names'], true);
-                    $message = '✓ Part selected! Now choose your stage.';
-                    $messageType = 'success';
+                    $message = '';
+                    $messageType = '';
                 } else {
                     $message = 'No stages configured for this part';
                     $messageType = 'warning';
@@ -74,8 +74,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($stmt && $metaRow = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
                 $stageMetadata = $metaRow;
                 $stageMetadata['stage_names'] = json_decode($metaRow['stage_names'], true);
-                $message = '✓ Stage selected! Now scan the bin barcode.';
-                $messageType = 'success';
+                $message = '';
+                $messageType = '';
             }
         }
     } elseif (isset($_POST['action']) && $_POST['action'] === 'scan_bin') {
@@ -170,8 +170,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         }
                     }
                     
-                    $message = '✓ Bin verified! Material matches selected part. Enter quantity to save.';
-                    $messageType = 'success';
+                    // Don't set message for successful bin scan - just proceed to quantity entry
+                    $message = '';
+                    $messageType = '';
                 } else {
                     // Error - parts don't match, stay on Step 3
                     $selectedBin = null;
@@ -1072,9 +1073,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <p class="subtitle">Two-phase workflow: Setup → Execution</p>
 
         <?php if ($message): ?>
-            <div class="message <?php echo $messageType; ?>">
-                <?php echo htmlspecialchars($message); ?>
-            </div>
+            <script>
+                alert(<?php echo json_encode($message); ?>);
+                <?php if ($messageType === 'success' && !$selectedBin && $selectedStageIndex !== null): ?>
+                // Auto-focus on bin input field after successful save
+                var binInput = document.getElementById('bin_barcode');
+                if (binInput) {
+                    binInput.focus();
+                }
+                <?php endif; ?>
+            </script>
         <?php endif; ?>
 
         <!-- Phase indicator -->

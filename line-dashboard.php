@@ -131,7 +131,7 @@ $final_production = 0;
 
 try {
     if ($conn !== false) {
-        // Material In: Total entries created (Stage 1 entries)
+        // Material Management: Total entries created (Stage 1 entries)
         $material_in = $total_production;
         
         // Production Quantity: Items that have at least one stage completed
@@ -496,7 +496,7 @@ try {
             </a>
             <a href="material-in.php" class="nav-item">
                 <i class="fas fa-plus-circle"></i>
-                <span>Material In</span>
+                <span>Material Management</span>
             </a>
             <a href="line-production-report.php" class="nav-item">
                 <i class="fas fa-list"></i>
@@ -592,7 +592,7 @@ try {
                     <div class="card-body">
                         <div class="production-stats">
                             <div class="production-day">
-                                <span class="day-label">Material In</span>
+                                <span class="day-label">Material Management</span>
                                 <div class="bar-container">
                                     <div class="bar material-in" style="height: <?php echo $material_in > 0 ? '100%' : '5%'; ?>;"></div>
                                 </div>
@@ -624,7 +624,7 @@ try {
                         <div class="chart-legend">
                             <div class="legend-item">
                                 <span class="legend-color material-in"></span>
-                                <span>Material In Quantity</span>
+                                <span>Material Management Quantity</span>
                             </div>
                             <div class="legend-item">
                                 <span class="legend-color production"></span>
@@ -649,7 +649,7 @@ try {
                                 <div class="progress-header">
                                     <span class="progress-label">
                                         <i class="fas fa-inbox" style="color: #3b82f6;"></i>
-                                        Material In
+                                        Material Management
                                     </span>
                                     <span class="progress-value"><?php echo number_format($material_in); ?></span>
                                 </div>

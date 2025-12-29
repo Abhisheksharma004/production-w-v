@@ -382,13 +382,13 @@ if (isset($_SESSION['message'])) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Material In - <?php echo htmlspecialchars($line_name); ?></title>
+    <title>Material Management - <?php echo htmlspecialchars($line_name); ?></title>
     <link rel="stylesheet" href="css/dashboard.css">
     <link rel="stylesheet" href="css/line-management.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="css/material-in.css">
     <style>
-        /* Custom styling for material in page header */
+        /* Custom styling for Material Management page header */
         .header {
             background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
             padding: 12px 20px;
@@ -477,7 +477,7 @@ if (isset($_SESSION['message'])) {
             </a>
             <a href="material-in.php" class="nav-item active">
                 <i class="fas fa-plus-circle"></i>
-                <span>Material In</span>
+                <span>Material Management</span>
             </a>
             <a href="line-production-report.php" class="nav-item">
                 <i class="fas fa-list"></i>
@@ -490,7 +490,7 @@ if (isset($_SESSION['message'])) {
         <div class="header">
             <div class="header-left">
                 <div class="page-title">
-                    <h1><i class="fas fa-plus-circle"></i> Material In</h1>
+                    <h1><i class="fas fa-plus-circle"></i> Material Management</h1>
                     <p>Record incoming materials and parts</p>
                 </div>
             </div>
@@ -519,7 +519,7 @@ if (isset($_SESSION['message'])) {
 
             <div class="page-header">
                 <div class="page-title">
-                    <h2>Material In Records</h2>
+                    <h2>Material Management Records</h2>
                     <p>View and manage incoming materials</p>
                 </div>
                 <div style="display: flex; gap: 12px;">
@@ -692,7 +692,7 @@ if (isset($_SESSION['message'])) {
                                         <p id="close_part_code" style="margin: 5px 0; color: #334155;">-</p>
                                     </div>
                                     <div>
-                                        <strong>Material In:</strong>
+                                        <strong>Material Management:</strong>
                                         <p id="close_in_quantity" style="margin: 5px 0; color: #334155;">-</p>
                                     </div>
                                 </div>
@@ -733,10 +733,10 @@ if (isset($_SESSION['message'])) {
                 </div>
             </div>
 
-            <!-- Material In Records Table -->
+            <!-- Material Management Records Table -->
             <div class="table-card">
                 <div class="table-header">
-                    <h3><i class="fas fa-clipboard-list"></i> Material In Records</h3>
+                    <h3><i class="fas fa-clipboard-list"></i> Material Management Records</h3>
                     <p>Recent material receipts and inventory tracking</p>
                 </div>
                 
@@ -1063,7 +1063,7 @@ if (isset($_SESSION['message'])) {
                             return;
                         }
                         
-                        // Populate modal with material information
+                        // Populate modal with Material Managementformation
                         document.getElementById('close_material_id').value = data.id;
                         document.getElementById('close_batch_number').textContent = data.batch_number;
                         document.getElementById('close_part_code').textContent = data.part_code;

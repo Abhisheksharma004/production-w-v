@@ -12,7 +12,7 @@ require_once 'config/database.php';
 
 $current_user = $_SESSION['username'];
 $activePage = 'material-in';
-$pageTitle = 'Material In';
+$pageTitle = 'Material Management';
 
 // Fetch all production lines for filter
 $lines = [];
@@ -152,7 +152,7 @@ foreach ($allMaterials as $material) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Material In - Production Management System</title>
+    <title>Material Management - Production Management System</title>
     <link rel="stylesheet" href="css/dashboard.css">
     <link rel="stylesheet" href="css/line-management.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -227,7 +227,7 @@ foreach ($allMaterials as $material) {
 
             <div class="page-header">
                 <div class="page-title">
-                    <h2>Material In Records</h2>
+                    <h2>Material Management Records</h2>
                     <p>View all incoming materials across production lines</p>
                 </div>
                 <div style="display: flex; gap: 12px;">
@@ -552,7 +552,7 @@ foreach ($allMaterials as $material) {
             form.style.display = 'none';
 
             const inputs = {
-                part_code: 'Material In',
+                part_code: 'Material Management',
                 part_name: 'All Lines',
                 date_from: document.getElementById('filter_date_from').value || '',
                 date_to: document.getElementById('filter_date_to').value || '',

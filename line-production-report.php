@@ -185,7 +185,7 @@ try {
             </a>
             <a href="material-in.php" class="nav-item">
                 <i class="fas fa-plus-circle"></i>
-                <span>Material In</span>
+                <span>Material Management</span>
             </a>
             <a href="line-production-report.php" class="nav-item active">
                 <i class="fas fa-list"></i>
