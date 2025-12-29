@@ -120,6 +120,56 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     // Success - parts match, proceed to Step 4
                     $materialData = $row;
                     $selectedBin = $binBarcode;
+                    
+                    // Get previous stage quantity if this is not the first stage
+                    $previousStageQty = null;
+                    if ($stageIndex > 0) {
+                        $sql = "SELECT table_name, stage_names FROM stages_metadata WHERE part_id = ?";
+                        $metaStmt = sqlsrv_query($conn, $sql, array($partId));
+                        
+                        if ($metaStmt && $metaRow = sqlsrv_fetch_array($metaStmt, SQLSRV_FETCH_ASSOC)) {
+                            $tableName = $metaRow['table_name'];
+                            $stageNames = json_decode($metaRow['stage_names'], true);
+                            
+                            // Get batch number for this bin
+                            $sql = "SELECT m.batch_number 
+                                    FROM material_in m 
+                                    LEFT JOIN wing_scales w ON m.wing_scale_id = w.id 
+                                    WHERE (w.scale_code = ? OR m.wing_scale_code = ?) 
+                                    AND LOWER(m.production_status) = 'open' 
+                                    ORDER BY m.created_at DESC";
+                            $batchStmt = sqlsrv_query($conn, $sql, array($binBarcode, $binBarcode));
+                            
+                            if ($batchStmt && $batchRow = sqlsrv_fetch_array($batchStmt, SQLSRV_FETCH_ASSOC)) {
+                                $batchNumber = $batchRow['batch_number'];
+                                $stageValue = $binBarcode . ' - ' . $batchNumber;
+                                
+                                // Get previous stage quantity column
+                                $previousStageName = $stageNames[$stageIndex - 1];
+                                $previousStageNumber = $stageIndex;
+                                $previousStageQtyColumn = 'stage_' . $previousStageNumber . '_' . strtolower(preg_replace('/[^a-zA-Z0-9]/', '_', $previousStageName)) . '_qty';
+                                
+                                // Query previous stage quantity
+                                $whereConditions = array();
+                                $searchParams = array();
+                                foreach ($stageNames as $idx => $name) {
+                                    $stgNum = $idx + 1;
+                                    $stgCol = 'stage_' . $stgNum . '_' . strtolower(preg_replace('/[^a-zA-Z0-9]/', '_', $name));
+                                    $whereConditions[] = "$stgCol = ?";
+                                    $searchParams[] = $stageValue;
+                                }
+                                $whereClause = implode(' OR ', $whereConditions);
+                                
+                                $sql = "SELECT $previousStageQtyColumn FROM [$tableName] WHERE $whereClause";
+                                $prevStmt = sqlsrv_query($conn, $sql, $searchParams);
+                                
+                                if ($prevStmt && $prevRow = sqlsrv_fetch_array($prevStmt, SQLSRV_FETCH_ASSOC)) {
+                                    $previousStageQty = $prevRow[$previousStageQtyColumn];
+                                }
+                            }
+                        }
+                    }
+                    
                     $message = '✓ Bin verified! Material matches selected part. Enter quantity to save.';
                     $messageType = 'success';
                 } else {
@@ -200,16 +250,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $previousQuantity = $prevRow[$previousStageQtyColumn];
                     
                     if ($previousQuantity !== null && $stageQuantity > $previousQuantity) {
-                        $message = '✗ Error: Stage quantity (' . $stageQuantity . ') cannot be greater than previous stage quantity (' . $previousQuantity . ')';
+                        $message = '✗ Error: Quantity (' . $stageQuantity . ') cannot exceed previous stage quantity (' . $previousQuantity . '). Please enter ' . $previousQuantity . ' or less.';
                         $messageType = 'error';
                         
-                        // Reload data to show the form again
+                        // Reload data to show the form again with correct state
                         $sql = "SELECT id, part_code, part_name FROM parts WHERE id = ?";
                         $stmt = sqlsrv_query($conn, $sql, array($partId));
                         
                         if ($stmt && $row = sqlsrv_fetch_array($stmt, SQLSRV_FETCH_ASSOC)) {
                             $selectedPart = $row;
-                            $selectedStageIndex = null;
+                            $selectedStageIndex = $stageIndex; // Keep stage selected, not null!
                             $selectedBin = $binBarcode;
                             
                             if ($binBarcode) {
@@ -717,23 +767,301 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             color: #38ef7d;
         }
 
-        @media (max-width: 600px) {
+        /* Tablet Responsive */
+        @media (max-width: 900px) {
             .container {
-                padding: 32px 24px;
+                padding: 40px 30px;
+                max-width: 550px;
+            }
+
+            h1 {
+                font-size: 26px;
+            }
+
+            .part-info {
+                padding: 15px;
+            }
+
+            .part-info h3 {
+                font-size: 16px;
+            }
+
+            .part-info p {
+                font-size: 13px;
+            }
+        }
+
+        /* Mobile Landscape */
+        @media (max-width: 768px) {
+            body {
+                padding: 15px;
+            }
+
+            .container {
+                padding: 35px 25px;
+                max-width: 100%;
             }
 
             h1 {
                 font-size: 24px;
             }
 
-            .step-label {
-                font-size: 10px;
+            .subtitle {
+                font-size: 13px;
+                margin-bottom: 25px;
             }
 
+            .message {
+                padding: 10px 15px;
+                font-size: 13px;
+            }
+
+            /* Stack phase indicators vertically on mobile */
+            .phase-container {
+                flex-direction: column !important;
+                gap: 15px !important;
+            }
+
+            .phase-section {
+                width: 100% !important;
+                flex: none !important;
+            }
+
+            /* Adjust step sizes */
+            .step-number {
+                width: 28px;
+                height: 28px;
+                font-size: 13px;
+            }
+
+            .step-label {
+                font-size: 11px;
+            }
+
+            /* Form adjustments */
+            input[type="text"],
+            input[type="number"],
+            select {
+                padding: 12px 14px;
+                font-size: 14px;
+            }
+
+            label {
+                font-size: 13px;
+            }
+
+            .btn {
+                padding: 12px;
+                font-size: 14px;
+            }
+
+            /* Reset button */
+            .reset-button {
+                padding: 10px 20px !important;
+                font-size: 13px !important;
+            }
+
+            .reset-info {
+                font-size: 11px !important;
+            }
+
+            /* Part info boxes */
+            .part-info {
+                padding: 15px;
+            }
+
+            .part-info h3 {
+                font-size: 15px;
+                margin-bottom: 8px;
+            }
+
+            .part-info p {
+                font-size: 12px;
+                margin: 4px 0;
+            }
+
+            .form-group {
+                margin-bottom: 20px;
+            }
+        }
+
+        /* Mobile Portrait */
+        @media (max-width: 600px) {
+            body {
+                padding: 10px;
+            }
+
+            .container {
+                padding: 30px 20px;
+                border-radius: 12px;
+            }
+
+            h1 {
+                font-size: 22px;
+                margin-bottom: 8px;
+            }
+
+            .subtitle {
+                font-size: 12px;
+                margin-bottom: 20px;
+            }
+
+            .message {
+                padding: 10px 12px;
+                font-size: 12px;
+            }
+
+            /* Smaller phase sections */
+            .phase-section {
+                padding: 15px !important;
+                border-radius: 10px !important;
+            }
+
+            .phase-section h3 {
+                font-size: 14px !important;
+                margin-bottom: 10px !important;
+            }
+
+            /* Compact steps */
             .step-number {
                 width: 25px;
                 height: 25px;
                 font-size: 12px;
+            }
+
+            .step-label {
+                font-size: 10px;
+            }
+
+            .step-connector {
+                width: 30px !important;
+            }
+
+            /* Form elements */
+            input[type="text"],
+            input[type="number"],
+            select {
+                padding: 11px 12px;
+                font-size: 14px;
+            }
+
+            label {
+                font-size: 12px;
+                margin-bottom: 6px;
+            }
+
+            .btn {
+                padding: 11px;
+                font-size: 13px;
+                letter-spacing: 0.3px;
+            }
+
+            /* Reset button */
+            .reset-button {
+                padding: 8px 16px !important;
+                font-size: 12px !important;
+                border-radius: 6px !important;
+            }
+
+            .reset-info {
+                font-size: 10px !important;
+                line-height: 1.4;
+            }
+
+            /* Part info boxes */
+            .part-info {
+                padding: 12px;
+                margin-bottom: 20px;
+            }
+
+            .part-info h3 {
+                font-size: 14px;
+                margin-bottom: 6px;
+            }
+
+            .part-info p {
+                font-size: 11px;
+                margin: 3px 0;
+            }
+
+            .part-info hr {
+                margin: 10px 0 !important;
+            }
+
+            /* Previous stage warning */
+            .prev-stage-warning {
+                padding: 8px !important;
+                font-size: 11px !important;
+            }
+
+            .prev-stage-warning strong {
+                font-size: 12px !important;
+            }
+
+            .prev-stage-warning .qty-display {
+                font-size: 16px !important;
+            }
+
+            .prev-stage-warning small {
+                font-size: 10px !important;
+            }
+
+            .form-group {
+                margin-bottom: 18px;
+            }
+
+            .form-group small {
+                font-size: 10px !important;
+            }
+        }
+
+        /* Extra Small Mobile */
+        @media (max-width: 400px) {
+            .container {
+                padding: 25px 15px;
+            }
+
+            h1 {
+                font-size: 20px;
+            }
+
+            .subtitle {
+                font-size: 11px;
+            }
+
+            .phase-section {
+                padding: 12px !important;
+            }
+
+            .phase-section h3 {
+                font-size: 13px !important;
+            }
+
+            .step-number {
+                width: 22px;
+                height: 22px;
+                font-size: 11px;
+            }
+
+            .step-label {
+                font-size: 9px;
+            }
+
+            input[type="text"],
+            input[type="number"],
+            select {
+                padding: 10px;
+                font-size: 13px;
+            }
+
+            .btn {
+                padding: 10px;
+                font-size: 12px;
+            }
+
+            .part-info p strong {
+                display: inline-block;
+                min-width: 100px;
             }
         }
     </style>
@@ -750,9 +1078,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php endif; ?>
 
         <!-- Phase indicator -->
-        <div style="display: flex; justify-content: space-around; margin: 30px 0; gap: 20px;">
+        <div class="phase-container" style="display: flex; justify-content: space-around; margin: 30px 0; gap: 20px;">
             <!-- SECTION 1: Setup Phase (Steps 1-2) -->
-            <div style="flex: 1; border: 2px solid <?php echo (!$selectedPart || ($selectedPart && $selectedStageIndex === null && !$selectedBin)) ? '#3b82f6' : '#38ef7d'; ?>; border-radius: 12px; padding: 20px; background: <?php echo (!$selectedPart || ($selectedPart && $selectedStageIndex === null && !$selectedBin)) ? '#eff6ff' : '#f0fdf4'; ?>;">
+            <div class="phase-section" style="flex: 1; border: 2px solid <?php echo (!$selectedPart || ($selectedPart && $selectedStageIndex === null && !$selectedBin)) ? '#3b82f6' : '#38ef7d'; ?>; border-radius: 12px; padding: 20px; background: <?php echo (!$selectedPart || ($selectedPart && $selectedStageIndex === null && !$selectedBin)) ? '#eff6ff' : '#f0fdf4'; ?>;">
                 <h3 style="margin: 0 0 15px 0; color: <?php echo (!$selectedPart || ($selectedPart && $selectedStageIndex === null && !$selectedBin)) ? '#3b82f6' : '#38ef7d'; ?>; font-size: 16px; text-align: center;">
                     <?php echo (!$selectedPart || ($selectedPart && $selectedStageIndex === null && !$selectedBin)) ? '📋 SECTION 1: SETUP PHASE' : '✓ SECTION 1: COMPLETED'; ?>
                 </h3>
@@ -761,7 +1089,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <div class="step-number">1</div>
                         <div class="step-label">Select Part</div>
                     </div>
-                    <div style="width: 40px; height: 2px; background: #e0e0e0;"></div>
+                    <div class="step-connector" style="width: 40px; height: 2px; background: #e0e0e0;"></div>
                     <div class="step <?php echo ($selectedPart && $selectedStageIndex === null && !$selectedBin) ? 'active' : (($selectedStageIndex !== null || $selectedBin) ? 'completed' : ''); ?>">
                         <div class="step-number">2</div>
                         <div class="step-label">Select Stage</div>
@@ -770,7 +1098,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
             
             <!-- SECTION 2: Execution Phase (Steps 3-4) -->
-            <div style="flex: 1; border: 2px solid <?php echo ($selectedStageIndex !== null || $selectedBin) ? '#3b82f6' : '#cbd5e1'; ?>; border-radius: 12px; padding: 20px; background: <?php echo ($selectedStageIndex !== null || $selectedBin) ? '#eff6ff' : '#f8fafc'; ?>; opacity: <?php echo ($selectedStageIndex === null && !$selectedBin) ? '0.5' : '1'; ?>;">
+            <div class="phase-section" style="flex: 1; border: 2px solid <?php echo ($selectedStageIndex !== null || $selectedBin) ? '#3b82f6' : '#cbd5e1'; ?>; border-radius: 12px; padding: 20px; background: <?php echo ($selectedStageIndex !== null || $selectedBin) ? '#eff6ff' : '#f8fafc'; ?>; opacity: <?php echo ($selectedStageIndex === null && !$selectedBin) ? '0.5' : '1'; ?>;">
                 <h3 style="margin: 0 0 15px 0; color: <?php echo ($selectedStageIndex !== null || $selectedBin) ? '#3b82f6' : '#94a3b8'; ?>; font-size: 16px; text-align: center;">
                     <?php echo ($selectedStageIndex === null && !$selectedBin) ? '⏳ SECTION 2: EXECUTION PHASE' : ($selectedStageIndex !== null ? '✓ SECTION 2: IN PROGRESS' : '📦 SECTION 2: ACTIVE'); ?>
                 </h3>
@@ -779,7 +1107,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         <div class="step-number">3</div>
                         <div class="step-label">Verify Bin</div>
                     </div>
-                    <div style="width: 40px; height: 2px; background: #e0e0e0;"></div>
+                    <div class="step-connector" style="width: 40px; height: 2px; background: #e0e0e0;"></div>
                     <div class="step <?php echo ($selectedStageIndex !== null) ? 'active' : ''; ?>">
                         <div class="step-number">4</div>
                         <div class="step-label">Enter Quantity</div>
@@ -793,11 +1121,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             <div style="text-align: center; margin: 20px 0;">
                 <form method="POST" action="" style="display: inline;">
                     <input type="hidden" name="action" value="reset_workflow">
-                    <button type="submit" class="btn" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 4px rgba(239, 68, 68, 0.3); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(239, 68, 68, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(239, 68, 68, 0.3)';">
+                    <button type="submit" class="btn reset-button" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: none; padding: 12px 24px; border-radius: 8px; font-size: 14px; font-weight: 600; cursor: pointer; box-shadow: 0 2px 4px rgba(239, 68, 68, 0.3); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(239, 68, 68, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(239, 68, 68, 0.3)';">
                         🔄 Start New Selection (Change Part/Stage)
                     </button>
                 </form>
-                <p style="font-size: 12px; color: #64748b; margin-top: 8px;">
+                <p class="reset-info" style="font-size: 12px; color: #64748b; margin-top: 8px;">
                     Currently locked: <strong style="color: #3b82f6;"><?php echo htmlspecialchars($selectedPart['part_code']); ?></strong>
                     <?php if ($selectedStageIndex !== null && $stageMetadata): ?>
                         → <strong style="color: #3b82f6;">Stage <?php echo ($selectedStageIndex + 1); ?>: <?php echo htmlspecialchars($stageMetadata['stage_names'][$selectedStageIndex]); ?></strong>
@@ -897,6 +1225,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <p><strong>Batch Number:</strong> <?php echo htmlspecialchars($materialData['batch_number'] ?? 'N/A'); ?></p>
                 <p><strong>Available Quantity:</strong> <?php echo htmlspecialchars($materialData['in_quantity'] ?? 'N/A'); ?></p>
                 <p><strong>Status:</strong> <span style="color: #38ef7d; font-weight: bold;">OPEN</span></p>
+                
+                <?php if ($selectedStageIndex > 0 && isset($previousStageQty)): ?>
+                <hr style="margin: 15px 0; border: none; border-top: 1px solid #cbd5e1;">
+                <p style="background: #fef3c7; padding: 10px; border-radius: 6px; border-left: 3px solid #f59e0b;">
+                    <strong style="color: #92400e;">⚠ Previous Stage Quantity:</strong> 
+                    <span style="color: #92400e; font-size: 18px; font-weight: bold;"><?php echo htmlspecialchars($previousStageQty); ?></span><br>
+                    <small style="color: #78350f;">You can enter equal or less quantity (max: <?php echo htmlspecialchars($previousStageQty); ?>)</small>
+                </p>
+                <?php endif; ?>
             </div>
             <?php endif; ?>
 
@@ -913,8 +1250,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                            name="stage_quantity" 
                            placeholder="Enter quantity for this stage" 
                            min="0"
+                           <?php if ($selectedStageIndex > 0 && isset($previousStageQty)): ?>
+                           max="<?php echo htmlspecialchars($previousStageQty); ?>"
+                           <?php endif; ?>
                            required
                            autofocus>
+                    <?php if ($selectedStageIndex > 0 && isset($previousStageQty)): ?>
+                    <small style="color: #64748b; display: block; margin-top: 5px;">
+                        📊 Maximum allowed: <?php echo htmlspecialchars($previousStageQty); ?> (from previous stage)
+                    </small>
+                    <?php endif; ?>
                 </div>
 
                 <button type="submit" class="btn btn-primary">Save Stage Data</button>
