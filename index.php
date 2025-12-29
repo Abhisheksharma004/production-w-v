@@ -114,6 +114,11 @@ if ($_SERVER["REQUEST_METHOD"] == "POST") {
                 <i class="fas fa-industry"></i>
                 Production Line Login
             </a>
+            <span style="margin: 0 10px; color: #cbd5e1;">|</span>
+            <a href="stage-login.php" style="color: #3b82f6; text-decoration: none; display: inline-flex; align-items: center; gap: 5px;">
+                <i class="fas fa-qrcode"></i>
+                Stage Login
+            </a>
         </div>
     </div>
 </body>

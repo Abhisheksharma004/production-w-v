@@ -1,5 +1,12 @@
 <?php
-// No session or authentication required - public access page
+session_start();
+
+// Check if stage user is logged in
+if (!isset($_SESSION['stage_user'])) {
+    header("Location: stage-login.php");
+    exit();
+}
+
 require_once 'config/database.php';
 
 $message = '';
@@ -496,6 +503,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Stage Scanning - Production Management</title>
     <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         * {
             margin: 0;
@@ -1069,8 +1077,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 </head>
 <body>
     <div class="container">
-        <h1>Stage Scanning</h1>
-        <p class="subtitle">Two-phase workflow: Setup → Execution</p>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div>
+                <h1 style="margin-bottom: 5px;">Stage Scanning</h1>
+                <p class="subtitle" style="margin: 0;">Two-phase workflow: Setup → Execution</p>
+            </div>
+            <a href="stage-logout.php" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-size: 14px; font-weight: 600; display: inline-flex; align-items: center; gap: 8px; box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3); transition: all 0.3s;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(239, 68, 68, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(239, 68, 68, 0.3)';">
+                <i class="fas fa-sign-out-alt"></i>
+            </a>
+        </div>
 
         <?php if ($message): ?>
             <script>
